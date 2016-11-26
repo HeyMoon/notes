@@ -1,5 +1,3 @@
-Java NIO:
-
 ## java nio nio.2 学习笔记
 chapter 1-6为java nio部分,其他部分为nio.2
 

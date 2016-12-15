@@ -916,6 +916,6 @@ Found 1 deadlock.
 
 参考：
 
-1. [](http://www.codeceo.com/article/jvm-debug-tools-guide.html)
-2. [](http://docs.oracle.com/javase/7/docs/technotes/tools/share/jstack.html)
+1. http://www.codeceo.com/article/jvm-debug-tools-guide.html
+2. http://docs.oracle.com/javase/7/docs/technotes/tools/share/jstack.html
 3. 深入理解java虚拟机-JVM高级特性与最佳实践 周志明著

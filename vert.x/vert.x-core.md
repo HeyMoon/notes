@@ -141,3 +141,156 @@ For the levels of concurrency required in many modern applications, a blocking a
 我们在之前已经提到过 Vert.x的API是事件驱动的--当它们可用时，Vert.x 传递事件到handler。
 
 在大多数例子中，Vert.x 使用一个被称为`event loop`的线程调用你的handler.
+
+因为 Vert.x或者应用中的任何事都不会阻塞，event loop可以愉快的四处运行连续的传递事件到不同的handler，当事件到达时。
+
+因为没有事情会阻塞，一个event loop有在很短时间内传递大量事件的潜能。例如，单个event loop可以很快的处理上成千上万个HTTP 请求。
+
+我们把这叫做[Reactor Pattern](https://en.wikipedia.org/wiki/Reactor_pattern)
+
+你可能已经听说过它--例如 Node.js 实现了这种模式
+
+在一个标准的reactor实现中，有一个event loop线程在循环中运行，在事件到来时传递所有的事件到所有的handler。
+
+单个线程的麻烦是，在任意时间它只能运行一个Core,所以，如果你想要你的单线程reactor 应用scale over你的多core 服务端，你需要启动和管理多个不同的进程。
+
+Vert.x 在这方面不同。每一个Vertx 实例维护了几个event loop，而不是一个。默认的，我们选择event loop的数量是基于机器上可用的CUP的数量，不过，这是可以重载的。
+
+这意味着，一个 Vertx 进程可以scale across your server,不像Node.js。
+
+我们称这种模式为`Multi-Reactor Pattern`，为了区分单线程的reactor Pattern.
+
+> NOTE
+>
+>即使一个 Vertx实例维护了多个event loop，任何一个具体的hanlder 都不可能并发执行，并且在大多数情况下(除了 [worker verticles](http://vertx.io/docs/vertx-core/java/#worker_verticles))，被调用时，总是使用同一个event loop。
+
+### The Golden Rule - Don't Block the Event Loop
+我们已经知道 Vert.x 的API是非阻塞的，并且不会阻塞 evnet loop，但是如果你自己在handler 中阻塞了event loop，这并没有多大的帮助。
+
+如果你这样做了（在handler中阻塞了event loop）,那么当被阻塞时，那个event loop将不能做其他事。如果你阻塞了Vertx实例中的所有event loop,那么你的应用将完全停止。
+
+所以不要这样做！**你已经被警告了.**
+
+阻塞的例子包括：
+
++ Thread.sleep()
++ 在一个锁(lock)上等待
++ 在一个独占锁或监视器上等待（比如 synchronized 代码块）
++ 执行一个长时间的数据库操作，并且等待结果
++ 执行一个复杂的计算，花费了很多时间。
++ 在循环中自旋
+
+如果上面的任何一个在`很长的时间`内阻止event loop做其他的事，then you should go immediately to the naughty step,and await further instructions.
+
+那么什么是`很长的时间`呢？
+
+一节绳子有多长？ 这实际上取决于你的应用和你要求的并发数。
+
+如果你只有一个event loop，你想要每秒处理10000个HTTP 请求，那么很显然每一个请求的处理时间不能大于0.1 ms，所以你不能阻塞比这长的时间。
+
+**The maths is not hard and shall be left as an exercise for the reader。**
+
+如果你的应用不响应了，这可能是你在某些地方阻塞了一个event loop的标志。为了帮助你识别这些情况， 如果检测到一个event loop在某些时间内没有返回，Vert.x 将会自动的记录 `warnings`。如果你在日志里看到这类`warnings`，你应该调查一下。
+
+````
+Thread vertx-eventloop-thread-3 has been blocked for 20458 ms
+````
+
+Vert.x 也将会提供堆栈信息来准确的找到阻塞发生的地方。
+
+如果你想关闭这些`warnings`或改变设置，你可以在创建`Vertx`对象之前，在`VertxOptions`对象里设置。
+
+### Running blocking code
+在一个完美的世界里将不会有战争或饥饿，所有的API都是异步的，在暖阳下，小兔子和小羊羔手牵手的走在绿色的草地上。
+
+但是，现实世界不是这样的（你最近没看新闻吗？）
+
+事实是，很多，如果不是大多数库，特别是在JVM 生态系统有同步API，并且很多的方法都是阻塞的。一个好的例子是 JDBC API--它内在的是阻塞的，无论它如何尽力的尝试，Vert.x 不能够撒一些魔法灰来使得它变成异步。
+
+我们不打算重写一切来使得他一夜间变成异步的，所以我们需要提供一种方式在 Vert.x 应用中安全的使用传统的阻塞API。
+
+正如之前讨论的，你不能在event loop里直接调用阻塞操作，因为它将会阻止我们做其他有用的工作。那么我们要怎么做呢？
+
+这是通过调用`executeBlocking`指定需要执行的阻塞的代码和阻塞代码被执行后异步回调的result handler。如下所示：
+
+````
+vertx.executeBlocking(future -> {
+  // Call some blocking API that takes a significant amount of time to return
+  String result = someAPI.blockingMethod("hello");
+  future.complete(result);
+}, res -> {
+  System.out.println("The result is: " + res.result());
+});
+````
+
+默认的，如果`executeBlocking`在同一个context（例如，同一个 Verticle实例）里被调用多次，那么不同的`executeBlocking`将串行的被执行。
+
+如果你不关心顺序，你可以在调用`executeBlocking`时指定参数`ordered`为`false`。在这种情况下，`executeBlocking`可能会在worker pool里并行执行。
+
+一种可选的 运行阻塞代码的方式是使用[woker Verticle](http://vertx.io/docs/vertx-core/java/#worker_verticles)。
+
+一个worker Verticle总是被worker pool中的一个线程执行。
+
+默认的，阻塞代码仔 Vert.x 的阻塞代码池中执行，配置为`setWorkerPoolSize`。
+
+其他的池也可以为了而不同的目的被创建：
+
+````
+WorkerExecutor executor = vertx.createSharedWorkerExecutor("my-worker-pool");
+executor.executeBlocking(future -> {
+  // Call some blocking API that takes a significant amount of time to return
+  String result = someAPI.blockingMethod("hello");
+  future.complete(result);
+}, res -> {
+  System.out.println("The result is: " + res.result());
+});
+````
+
+当不在需要时，worker executor 必须被关闭。
+
+````
+executor.close();
+````
+
+当几个worker使用同一个名字被创建时，他们将会共享同一个pool。当使用worker pool的所有worker executor被关闭时，worker pool被摧毁（destroyed）。
+
+当一个executor在一个Verticle中被创建时，Vert.x 将会在 Verticle取消部署时自动关闭executor.
+
+worker executor可以在被创建时配置：
+
+````
+int poolSize = 10;
+
+// 2 minutes
+long maxExecuteTime = 120000;
+
+WorkerExecutor executor = vertx.createSharedWorkerExecutor("my-worker-pool", poolSize, maxExecuteTime);
+````
+
+> NOTE
+>
+>当worker pool创建时，配置被设置。
+
+### Async coordination
+多个异步result 的协同可以通过 Vert.x 的`futures`做到。它支持concurrent composition（并行运行多个异步操作）和顺序composition（chain async operations）
+
+### concurrent composition
+`CompositeFuture.all`可以传递多个参数(最多6个),当所有的futures成功时，返回一个future，当至少一个futures失败时，返回failed。
+
+````
+Future<HttpServer> httpServerFuture = Future.future();
+httpServer.listen(httpServerFuture.completer());
+
+Future<NetServer> netServerFuture = Future.future();
+netServer.listen(netServerFuture.completer());
+
+CompositeFuture.all(httpServerFuture, netServerFuture).setHandler(ar -> {
+  if (ar.succeeded()) {
+    // All servers started
+  } else {
+    // At least one server failed
+  }
+});
+````
+
+操作并发运行，

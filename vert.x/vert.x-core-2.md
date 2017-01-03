@@ -726,3 +726,532 @@ eventBus.send("news.uk.sport", "Yay! Someone kicked a ball", options);
 Vert.x 将会传递消息到任何特定的handler以他们从任何特定的sender发送的顺序。
 
 #### The Message Object
+在message handler中接收到的对象是[message](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/Message.html)。
+
+
+message 中的[body](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/Message.html#body--)对应你发送或发布的对象。
+
+message中的headers可以通过[headers](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/Message.html#headers--)获取.
+
+#### Acknowledging messages/Sending replies
+当使用[send](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/EventBus.html#send-java.lang.String-java.lang.Object-)时，event bus想传递message 到注册到event bus的一个[MessageConsumer](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/MessageConsumer.html)。
+
+在某些情况下，对于发送者来说，知道consumer已经接收到消息并且处理了是有用的。
+
+为了确认消息已经处理了，consumer可以调用[reply](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/Message.html#reply-java.lang.Object-)回复消息。
+
+当这发生时（调用reply回复了），它导致一个回复发送到sender，然后reply handler被调用。
+
+一个例子将会使得这很清楚：
+
+接收者：
+
+````
+MessageConsumer<String> consumer = eventBus.consumer("news.uk.sport");
+consumer.handler(message -> {
+  System.out.println("I have received a message: " + message.body());
+  message.reply("how interesting!");
+});
+````
+
+发送者：
+
+````
+eventBus.send("news.uk.sport", "Yay! Someone kicked a ball across a patch of grass", ar -> {
+  if (ar.succeeded()) {
+    System.out.println("Received reply: " + ar.result().body());
+  }
+});
+````
+
+reply可以包含一个包含有用信息的body。
+
+处理的含义由应用定义，并且完全取决于message consumer，Vert.x event bus不关心。
+
+一些例子：
+
++ A simple message consumer which implements a service which returns the time of the day would acknowledge with a message containing the time of day in the reply body
+
++ A message consumer which implements a persistent queue, might acknowledge with true if the message was successfully persisted in storage, or false if not.
+
++ A message consumer which processes an order might acknowledge with true when the order has been successfully processed so it can be deleted from the database
+
+#### Sending with timeouts
+当发送一个有reply handler的消息时，你可以在[DeliveryOptions](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/DeliveryOptions.html)指定一个超时时间。
+
+如果在哪个时间内没有收到reply，reply handler将会以失败调用。
+
+默认的超时时间是30 s。
+
+#### Send Failures
+消息发送可能失败，包括如下原因：
+
++ There are no handlers available to send the message to
++ The recipient has explicitly failed the message using `fail`
+
+在所有的情况中，reply handler将会以一个特定失败调用。
+
+#### Message Codecs
+你可以发送你想发送的任何对象到event bus，如果你定义和为这个对象注册了一个[message codec](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/MessageCodec.html)。
+
+Message codecs有一个名字，在send或publih时你可以在[DeliveryOptions](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/DeliveryOptions.html)中指定这个名字。
+
+````
+eventBus.registerCodec(myCodec);
+
+DeliveryOptions options = new DeliveryOptions().setCodecName(myCodec.name());
+
+eventBus.send("orders", new MyPOJO(), options);
+````
+
+如果你对于某一个特定的类型总是想使用同一个codec，你可以为他注册一个默认的codec，然后你不用在每一个send的 delivery options上指定codec。
+
+````
+eventBus.registerDefaultCodec(MyPOJO.class, myCodec);
+
+eventBus.send("orders", new MyPOJO());
+````
+
+使用[unregisterCodec](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/EventBus.html#unregisterCodec-java.lang.String-)unregister a message codec。
+
+#### Clustered Event Bus
+event Bus不仅仅存在于一个Vert.x 实例。通过集群不同的Vert.x 实例，我们可以形成一个分布式的event bus。
+
+#### Clustering programmatically
+如果你在以编程方式创建你的Vert.x 实例，你可以通过配置 Vert.x 实例为集群来获取一个集群event bus。
+
+````
+VertxOptions options = new VertxOptions();
+Vertx.clusteredVertx(options, res -> {
+  if (res.succeeded()) {
+    Vertx vertx = res.result();
+    EventBus eventBus = vertx.eventBus();
+    System.out.println("We now have a clustered event bus: " + eventBus);
+  } else {
+    System.out.println("Failed: " + res.cause());
+  }
+});
+````
+
+你应该确保在你的classpath下有一个[ClusterManager](http://vertx.io/docs/apidocs/io/vertx/core/spi/cluster/ClusterManager.html)的实现，例如，默认的`HazelcastClusterManager`。
+
+#### Clustering on the command line
+你可以在命令行中运行Vert.x 集群，使用如下的命令：
+
+````
+vertx run my-verticle.js -cluster
+````
+
+#### Automatic clean-up in Verticles
+如果你从内部verticles注册了一个event bus handler，这些handler将会在verticle undeploy时自动unregister。
+
+### Configureing the event bus
+event bus可以配置。当event bus是集群时，这通常时很有效的。在底层，event bus使用TCP 连接发送和接收消息，所以[EventBusOptions](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/EventBusOptions.html)让你配置TCP连接的所有方面。正如event bus可以做为客户端和服务端，配置也分为[NetClientOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClientOptions.html)和[NetServerOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/NetServerOptions.html)。
+
+````
+VertxOptions options = new VertxOptions()
+    .setEventBusOptions(new EventBusOptions()
+        .setSsl(true)
+        .setKeyStoreOptions(new JksOptions().setPath("keystore.jks").setPassword("wibble"))
+        .setTrustStoreOptions(new JksOptions().setPath("keystore.jks").setPassword("wibble"))
+        .setClientAuth(ClientAuth.REQUIRED)
+    );
+
+Vertx.clusteredVertx(options, res -> {
+  if (res.succeeded()) {
+    Vertx vertx = res.result();
+    EventBus eventBus = vertx.eventBus();
+    System.out.println("We now have a clustered event bus: " + eventBus);
+  } else {
+    System.out.println("Failed: " + res.cause());
+  }
+});
+````
+
+前一小段代码描绘了你可以使用给event bus使用SSL connections，包括plain TCP connections。
+
+**WARNING**：为了加强集群模式下的安全性，你必须配置使用加密配置集群管理。参考文档中的集群管理，了解更多细节。
+
+event bus配置需要在集群中的所有节点保持一致。
+
+[EventBusOptions](http://vertx.io/docs/apidocs/io/vertx/core/eventbus/EventBusOptions.html)也允许你指定event bus 是否是集群，端口和主机，正如你可以通过[setClustered](http://vertx.io/docs/apidocs/io/vertx/core/VertxOptions.html#setClustered-boolean-),[getClusterHost](http://vertx.io/docs/apidocs/io/vertx/core/VertxOptions.html#getClusterHost--),[getClusterPort](http://vertx.io/docs/apidocs/io/vertx/core/VertxOptions.html#getClusterPort--)。
+
+当在容器中使用时，你可以配置公共的host 和 port:
+
+````
+VertxOptions options = new VertxOptions()
+    .setEventBusOptions(new EventBusOptions()
+        .setClusterPublicHost("whatever")
+        .setClusterPublicPort(1234)
+    );
+
+Vertx.clusteredVertx(options, res -> {
+  if (res.succeeded()) {
+    Vertx vertx = res.result();
+    EventBus eventBus = vertx.eventBus();
+    System.out.println("We now have a clustered event bus: " + eventBus);
+  } else {
+    System.out.println("Failed: " + res.cause());
+  }
+});
+````
+
+### JSON
+不像其他语言，Java没有对JSON的一流支持，所以我们提供两个类使得在你的Vert.x 应用中处理JSON更加简单。
+
+#### JSON Objects
+[JsonObject](http://vertx.io/docs/apidocs/io/vertx/core/json/JsonObject.html)表示JSON 对象。
+
+一个JSON对象本质上是一个有键值对的map.
+
+JSON 对象也支持null值。
+
+##### Creating JSON Objects
+空的JSON对象可以以默认的构造器创建。
+
+你可以从一个string中创建一个JSON 对象：
+
+````
+String jsonString = "{\"foo\":\"bar\"}";
+JsonObject object = new JsonObject(jsonString);
+````
+
+##### Putting entries into a JSON object
+使用[put](http://vertx.io/docs/apidocs/io/vertx/core/json/JsonObject.html#put-java.lang.String-java.lang.Enum-)方法put 值到JSON 对象。
+
+方法调用可以chained 因为fluent API:
+
+````
+JsonObject object = new JsonObject();
+object.put("foo", "bar").put("num", 123).put("mybool", true);
+````
+
+##### Getting values from a JSON object
+你可以使用`getXXX`方法从JSON对象中获取值，例如：
+
+````
+String val = jsonObject.getString("some-key");
+int intVal = jsonObject.getInteger("some-other-key");
+````
+
+##### Encoding the JOSN object to a String
+使用[encode](http://vertx.io/docs/apidocs/io/vertx/core/json/JsonObject.html#encode--)编码一个对象为String.
+
+#### JSON Arrays
+[JsonArray](http://vertx.io/docs/apidocs/io/vertx/core/json/JsonArray.html)表示JSON Arrays.
+
+一个JSON Array是一序列的值(string,number,boolean)
+
+Json Array也可以包含null值。
+
+##### Creating Json Arrays
+可以使用默认的构造函数创建空的Json 对象。
+
+你可以从一个string中创建一个JSON Array，如下所示：
+
+````
+String jsonString = "[\"foo\",\"bar\"]";
+JsonArray array = new JsonArray(jsonString);
+````
+
+##### Adding entries into a JSON Array
+你可以add entries到一个Json Array，使用[add](http://vertx.io/docs/apidocs/io/vertx/core/json/JsonArray.html#add-java.lang.Enum-)方法。
+
+````
+JsonArray array = new JsonArray();
+array.add("foo").add(123).add(false);
+````
+
+##### Getting values from a Json array
+你可以使用`getXXX`方法从JSON array对象中获取值，例如：
+
+````
+String val = array.getString(0);
+Integer intVal = array.getInteger(1);
+Boolean boolVal = array.getBoolean(2);
+````
+
+##### Encoding the JSON array to a String
+使用[encode](http://vertx.io/docs/apidocs/io/vertx/core/json/JsonArray.html#encode--)方法，将一个array encode为String。
+
+### Buffers
+Vert.x 中的大多数数据移动使用buffers。
+
+一个buffer是一序列的零个或多个bytes，可以写入或从中读取，根据需要自动扩容来适应写入的bytes。你也可以把buffer想象为智能byte array。
+
+#### Creating buffers
+使用[Buffer.buffer](http://vertx.io/docs/apidocs/io/vertx/core/buffer/Buffer.html#buffer--)静态方法中的一个可以创建Buffers。
+
+Buffers可以从string 或 byte array中初始化，也可以创建空的buffers。
+
+下面是创建Buffer的例子：
+
+Create a new empty buffer:
+
+````
+Buffer buff = Buffer.buffer();
+````
+
+Create a buffer from a string.String 将会用UTF-8编码：
+
+````
+Buffer buff = Buffer.buffer("some string");
+````
+
+Create a buffer from a String:String will be encoded 使用指定的编码，例如：
+
+````
+Buffer buff = Buffer.buffer("some string", "UTF-16");
+````
+
+Create a buffer from a byte[]
+
+````
+byte[] bytes = new byte[] {1, 3, 5};
+Buffer buff = Buffer.buffer(bytes);
+````
+
+创建一个具有初始大小的buffer。如果你知道你的buffer有一个确定数量的数据写入，你可以创建一个指定大小的buffer。这使得buffer初始分配足够的内存，比起buffer随着写入的数据自动扩容多次要更有效。
+
+记住，这样创建的buffer是empty。它没有创建一个buffer，用零填充到指定的大小。
+
+````
+Buffer buff = Buffer.buffer(10000);
+````
+
+##### Writing to a Buffer
+有两种方式写入到一个buffer：appending，random access。在每种情况下，buffer将总是自动扩充来包含bytes。buffer不可能出现`IndexOutOfBoundsException`。
+
+##### Appending to a Buffer
+你可以使用`appendXXX`方法，append 到一个buffer。Append 方法可以appending 多种不同类型。
+
+`appendXXX`方法的返回值是buffer，所以可以chained:
+
+````
+Buffer buff = Buffer.buffer();
+
+buff.appendInt(123).appendString("hello\n");
+
+socket.write(buff);
+````
+
+##### Random access buffer writes
+你也可以写入到buffer中的特定index，通过使用`setXXX`方法。Set 方法也可以为多种不同的数据类型。所有的set 方法接收一个index 作为第一个参数-这代表buffer中开始写入的index。
+
+buffer总是会在必要时自动扩容来容纳数据。
+
+````
+Buffer buff = Buffer.buffer();
+
+buff.setInt(1000, 123);
+buff.setString(0, "hello");
+````
+
+##### Reading from a Buffer
+使用`getXXX`方法可以从buffer中读取数据。有各种数据类型的get方法。第一个参数是一个index，从buffer中的这个位置开始读取数据。
+
+````
+Buffer buff = Buffer.buffer();
+for (int i = 0; i < buff.length(); i += 4) {
+  System.out.println("int value at " + i + " is " + buff.getInt(i));
+}
+````
+
+##### Working with unsigned numbers
+无符号数可以通过`getUnsignedXXX`,`appendUnsignedXXX`,`setUnsignedXXX`方法读取或append/set。在为一个网络协议实现一个codec时，最小化带宽消耗是很有用的。
+
+在下面的例子中，值200在特定的位置被设置，只占用一个byte：
+
+````
+Buffer buff = Buffer.buffer(128);
+int pos = 15;
+buff.setUnsignedByte(pos, (short) 200);
+System.out.println(buff.getUnsignedByte(pos));
+````
+
+##### Buffer length
+使用[length](http://vertx.io/docs/apidocs/io/vertx/core/buffer/Buffer.html#length--)获取buffer的length。
+
+##### Copying buffers
+使用[copy](http://vertx.io/docs/apidocs/io/vertx/core/buffer/Buffer.html#copy--)复制buffer.
+
+##### Slicing buffers
+一个sliced buffer是一个在原buffer上创建的新的buffer，例如，他不会copy 底层数据。使用[slice](http://vertx.io/docs/apidocs/io/vertx/core/buffer/Buffer.html#slice--)创建一个sliced buffer。
+
+##### Buffer re-use
+在将buffer写入到socket 或类似的地方后，他们不能被重用。
+
+### Writing TCP servers and clients
+Vert.x 允许你很容易的写非阻塞的TCP 客户端和服务端。
+
+#### Creating a TCP server
+最简单的使用所有默认选项的创建TCP server的方式如下所示：
+
+````
+NetServer server = vertx.createNetServer();
+````
+
+#### Configuring a TCP server
+通过[NetServerOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/NetServerOptions.html)配置server.
+
+````
+NetServerOptions options = new NetServerOptions().setPort(4321);
+NetServer server = vertx.createNetServer(options);
+````
+
+#### Start the Server Listening
+告诉server监听到来的请求，你可以使用[listen](http://vertx.io/docs/apidocs/io/vertx/core/net/NetServer.html#listen--)方法中的一个。
+
+为了告诉server在options上指定的host和port上监听：
+
+````
+NetServer server = vertx.createNetServer();
+server.listen();
+````
+
+或，在调用listen 是指定host和port，忽略options中的配置：
+
+````
+NetServer server = vertx.createNetServer();
+server.listen(1234, "localhost");
+````
+
+默认的host是`0.0.0.0`,它意味者在所有可用的地址上监听，默认的port是`0`，这个特殊的值告诉server找到一个随机的未使用的本地端口，然后使用这个端口。
+
+
+真正的绑定是异步的，所以server可能实际上没有监听直到调用listen返回后的一段时间。
+
+如果你想在server实际监听时得到一个通知，你可以在调用listen是提供一个handler.例如：
+
+````
+NetServer server = vertx.createNetServer();
+server.listen(1234, "localhost", res -> {
+  if (res.succeeded()) {
+    System.out.println("Server is now listening!");
+  } else {
+    System.out.println("Failed to bind!");
+  }
+});
+````
+
+#### Listening on random port
+如果`0`被使用作为监听端口，server将找到一个未被使用的随机的端口来监听。
+
+为了找到server监听的真实端口，调用[actualPort](http://vertx.io/docs/apidocs/io/vertx/core/net/NetServer.html#actualPort--)。
+
+````
+NetServer server = vertx.createNetServer();
+server.listen(0, "localhost", res -> {
+  if (res.succeeded()) {
+    System.out.println("Server is now listening on actual port: " + server.actualPort());
+  } else {
+    System.out.println("Failed to bind!");
+  }
+});
+````
+
+#### Getting notified of incoming connections
+为了在一个连接被创建时得到通知，你需要设置一个[connectHandler](http://vertx.io/docs/apidocs/io/vertx/core/net/NetServer.html#connectHandler-io.vertx.core.Handler-):
+
+````
+NetServer server = vertx.createNetServer();
+server.connectHandler(socket -> {
+  // Handle the connection in here
+});
+````
+
+当一个连接被创建时，handler将会被调用，传入[NetSocket](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html)的实例。
+
+这是一个到实际连接的像socket 的接口，允许你读取和写入数据还有很多其他事情，比如关闭socket。
+
+#### Reading data from the socket
+为了从socket中读取出数据，你可以在socket 上设置一个[handler](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#handler-io.vertx.core.Handler-)。
+
+这个handler将会在每次数据到达socket时调用，以[Buffer](http://vertx.io/docs/apidocs/io/vertx/core/buffer/Buffer.html)的实例为参数。
+
+````
+NetServer server = vertx.createNetServer();
+server.connectHandler(socket -> {
+  socket.handler(buffer -> {
+    System.out.println("I received some bytes: " + buffer.length());
+  });
+});
+````
+
+#### Writing data to a socket
+使用[write](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#write-io.vertx.core.buffer.Buffer-)方法中的一个写数据到socket。
+
+````
+Buffer buffer = Buffer.buffer().appendFloat(12.34f).appendInt(123);
+socket.write(buffer);
+
+// Write a string in UTF-8 encoding
+socket.write("some data");
+
+// Write a string using the specified encoding
+socket.write("some data", "UTF-16");
+````
+
+写操作是异步的，可能在调用write方法返回之后的一段时间才发生。
+
+#### Closed Handler
+如果你想在一个socker 被关闭时得到通知，你可以在它上面设置一个[closeHandler](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#closeHandler-io.vertx.core.Handler-):
+
+````
+socket.closeHandler(v -> {
+  System.out.println("The socket has been closed");
+});
+````
+
+#### Handling Exceptions
+你可以设置一个[exceptionHandler](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#exceptionHandler-io.vertx.core.Handler-)来接收发生在socket上的任何异常。
+
+#### Event bus write handler
+每一个socket 自动的注册一个handler 到event bus，并且当这个handler接收到任何的buffers，它将buffers写到自己。
+
+这使得你可以将数据写入到一个socket,这个socket可能在一个完全不同的verticle，或者甚至在一个不同的Vert.x 实例，通过发送buffer到这个handler的地址。
+
+handler的地址由[writeHandlerID](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#writeHandlerID--)给出。
+
+#### Local and remote addresses
+一个`NetSocket`的本地地址可以使用[localAddress](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#localAddress--)获取。
+
+一个`NetSocket`的远程地址可以通过[remoteAddress](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#remoteAddress--)获取。
+
+#### Sending files or resources from the classpath
+文件和classpath resources可以直接写入到socket，使用[sendFile](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#sendFile-java.lang.String-)。这是一种很有效的发送文件的方式，因为他可以由支持被操作系统支持的操作系统内核支持。
+
+请看关于[serving files from the classpath](http://vertx.io/docs/vertx-core/java/#classpath)的章节，了解classpath 解决方案的约束。
+
+```
+socket.sendFile("myfile.dat");
+```
+
+#### Streaming sockets
+[NetSocket](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html)的实例也是`ReadStream`和`WriteStream`的实例，所以他们也可以被用于写入或从其他read/write stream 中读取数据。
+
+更多详细信息，请看[streams and pumps](http://vertx.io/docs/vertx-core/java/#streams)
+
+#### Upgrading connections to SSL/TLS
+一个非SSL/TLS连接可以升级为SSL/TLS，使用[upgradeToSsl](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html#upgradeToSsl-io.vertx.core.Handler-)。
+
+更多信息，请看[SSL/TLS](http://vertx.io/docs/vertx-core/java/#ssl)章节。
+
+#### Closing a TCP Server
+调用[close](http://vertx.io/docs/apidocs/io/vertx/core/net/NetServer.html#close--)关闭Server。关闭server，关闭任何打开的连接，释放所有资源。
+
+close是异步的，在调用返回后可能还没有完成。如果你想在真正的关闭完成时得到通知，你可以设置一个handler.
+
+这个handler将会在关闭完全完成时被调用。
+
+````
+server.close(res -> {
+  if (res.succeeded()) {
+    System.out.println("Server is now closed");
+  } else {
+    System.out.println("close failed");
+  }
+});
+````
+
+#### Automatic clean-up in verticles

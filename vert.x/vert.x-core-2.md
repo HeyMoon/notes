@@ -1255,3 +1255,125 @@ server.close(res -> {
 ````
 
 #### Automatic clean-up in verticles
+如果你从内部verticles创建了TCP servers和clients，这些servers和clients会在verticle undeploy时自动关闭。
+
+#### Scaling-sharing TCP servers
+任何TCP server的handler总是在同一个event loop thread里执行。
+
+这意味着，如果你的server运行在多核上，并且你只有一个实例部署，那么你最多只会利用server上的一个CPU。
+
+为了利用server上的更多核，你将需要在server上部署更多的实例。
+
+你可以以编程方式初始化更多的实例：
+
+````
+for (int i = 0; i < 10; i++) {
+  NetServer server = vertx.createNetServer();
+  server.connectHandler(socket -> {
+    socket.handler(buffer -> {
+      // Just echo back the data
+      socket.write(buffer);
+    });
+  });
+  server.listen(1234, "localhost");
+}
+````
+
+或者，如果你正在使用verticles，你可以简单的deploy更多的实例，通过在命令行中使用使用`-instances`选项。
+
+````
+vertx run com.mycompany.MyVerticle -instances 10
+````
+
+或者，以编程方式deploy 你的verticle:
+
+````
+DeploymentOptions options = new DeploymentOptions().setInstances(10);
+vertx.deployVerticle("com.mycompany.MyVerticle", options);
+````
+
+一旦你这样做了，你会发现echo server 和之前一样工作，但是server上的所有核都利用了，更多的工作可以被处理。
+
+此时，你可能会问自己 **为什么可以有多个server监听同一个host和port，肯定的是，当你想部署多于一个实例时，会发生port冲突**.
+
+**Vert.x does a little magic here.**
+
+当你在同一个host和port上部署另一个server时，因为已经存在server,所以它实际上并不会创建一个监听相同host和port的新的server。
+
+相反的，它内部只维护一个server，当到来connections时，它以round-robin方式分发connection到所有connect handlers。
+
+结果，Vert.x TCP servers可以随着可用CPU扩容，但是每一个实例仍然是单线程。
+
+#### Creating a TCP client
+最简单的创建TCP 客户端的方式，是使用所有的默认配置，如下所示：
+
+````
+NetClient client = vertx.createNetClient();
+````
+
+#### Configuring a TCP client
+如果你不想要默认的配置，可以在创建客户端时传递一个[NetClientOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClientOptions.html)实例。
+
+````
+NetClientOptions options = new NetClientOptions().setConnectTimeout(10000);
+NetClient client = vertx.createNetClient(options);
+````
+
+#### Making connections
+为了连接到一个server，你可以用[connect](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClient.html#connect-int-java.lang.String-io.vertx.core.Handler-),指定host和port，还有一个Handler，当连接成功时，这个Handler会被调用并传入一个[NetSocket](http://vertx.io/docs/apidocs/io/vertx/core/net/NetSocket.html)，在连接失败时，发生失败。
+
+#### Configuring connection attempts
+一个客户端可以配置为在它不能连接时自动重新连接到server。这就是配置[setReconnectInterval](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClientOptions.html#setReconnectInterval-long-),[setReconnectAttempts](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClientOptions.html#setReconnectAttempts-int-)
+
+> NOTE
+>
+>Currently Vert.x will not attempt to reconnect if a connection fails, reconnect attempts and interval only apply to creating initial connections.
+
+````
+NetClientOptions options = new NetClientOptions().
+    setReconnectAttempts(10).
+    setReconnectInterval(500);
+
+NetClient client = vertx.createNetClient(options);
+````
+
+默认的，不允许尝试多次连接.
+
+#### Logging network activity
+为了debug，网络活动可以被记录：
+
+````
+NetServerOptions options = new NetServerOptions().setLogActivity(true);
+
+NetServer server = vertx.createNetServer(options);
+````
+
+对于客户端来说：
+
+````
+NetClientOptions options = new NetClientOptions().setLogActivity(true);
+
+NetClient client = vertx.createNetClient(options);
+````
+
+网络活动被Netty记录，以DEBUG level，以`io.netty.handler.logging.LoggingHandler`名。当使用网络活动日志时，有一些事要记住：
+
++ 记日志是由Netty做而不是Vert.x
++ 这不是一个生产环境特性
+
+Netty 将会定位logger 实现，以下面的顺序：
+
++ SLf4j
++ Log4j
++ JDK
+
+SLf4j或Log4j classes出现在classpath对于选出logging implementation是足够的。
+
+也可以指定一个具体的实现：
+
+````
+// Force logging to SLF4J
+InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
+````
+
+#### Configuring servers and clients to work with SSL/TLS

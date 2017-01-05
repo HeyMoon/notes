@@ -1377,3 +1377,374 @@ InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
 ````
 
 #### Configuring servers and clients to work with SSL/TLS
+TCP 客户端和服务端可以配置为使用[Transport_Layer_Security](http://en.wikipedia.org/wiki/Transport_Layer_Security)--一个早期的TLS版本，被称为SSL。
+
+服务端和客户端的API是相同的，不管是否使用了SSL/TLS,可以通过配置`NetClientOptions`或`NetServerOptions`实例。
+
+#### Enabling SSL/TLS on the server
+通过[ssl](http://vertx.io/docs/apidocs/io/vertx/core/net/NetServerOptions.html#setSsl-boolean-)可以启用SSL/TLS。
+
+默认的，它是不启用的。
+
+#### Specifying key/certificate for the server
+SSL/TLS 服务端通常提供了为客户端提供了证书，为了验证客户端的身份。
+
+certificate/keys 可以通过几种方式为服务端配置：
+
+第一种方式是通过指定一个包含证书和private key的Java key-store的位置。
+
+Java key stores 可以通过JDK 提供的[keytool](http://docs.oracle.com/javase/6/docs/technotes/tools/solaris/keytool.html)来管理。
+
+key store的秘法也需要提供：
+
+````
+NetServerOptions options = new NetServerOptions().setSsl(true).setKeyStoreOptions(
+    new JksOptions().
+        setPath("/path/to/your/server-keystore.jks").
+        setPassword("password-of-your-keystore")
+);
+NetServer server = vertx.createNetServer(options);
+````
+
+可选的，你可以自己读取key store为buffer,并且直接提供：
+
+````
+Buffer myKeyStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/server-keystore.jks");
+JksOptions jksOptions = new JksOptions().
+    setValue(myKeyStoreAsABuffer).
+    setPassword("password-of-your-keystore");
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setKeyStoreOptions(jksOptions);
+NetServer server = vertx.createNetServer(options);
+````
+
+PKCS#12(https://en.wikipedia.org/wiki/PKCS_12) 格式的Key/certificate，通常以`.pfx`或`.p12`为后缀，也可以以相似的方式加载。
+
+````
+NetServerOptions options = new NetServerOptions().setSsl(true).setPfxKeyCertOptions(
+    new PfxOptions().
+        setPath("/path/to/your/server-keystore.pfx").
+        setPassword("password-of-your-keystore")
+);
+NetServer server = vertx.createNetServer(options);
+````
+
+Buffer 配置也是支持的：
+
+````
+NetServerOptions options = new NetServerOptions().setSsl(true).setPfxKeyCertOptions(
+    new PfxOptions().
+        setPath("/path/to/your/server-keystore.pfx").
+        setPassword("password-of-your-keystore")
+);
+NetServer server = vertx.createNetServer(options);
+````
+
+另一种提供server private key和证书的方式是分开的`.pem`文件。
+
+````
+NetServerOptions options = new NetServerOptions().setSsl(true).setPemKeyCertOptions(
+    new PemKeyCertOptions().
+        setKeyPath("/path/to/your/server-key.pem").
+        setCertPath("/path/to/your/server-cert.pem")
+);
+NetServer server = vertx.createNetServer(options);
+````
+
+Buffer 配置也是支持的：
+
+````
+Buffer myKeyAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/server-key.pem");
+Buffer myCertAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/server-cert.pem");
+PemKeyCertOptions pemOptions = new PemKeyCertOptions().
+    setKeyValue(myKeyAsABuffer).
+    setCertValue(myCertAsABuffer);
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setPemKeyCertOptions(pemOptions);
+NetServer server = vertx.createNetServer(options);
+````
+
+记住，pem配置，private key是未加密的。
+
+#### Specifying trust for the server
+SSL/TLS server可以使用一个证书授权来验证客户端的身份。
+
+证书验证可以通过几种方式在server配置：
+
+Java trust store可以通过JDK提供的[keytool](http://docs.oracle.com/javase/6/docs/technotes/tools/solaris/keytool.html)。
+
+trust store的密码也要提供：
+
+````
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setClientAuth(ClientAuth.REQUIRED).
+    setTrustStoreOptions(
+        new JksOptions().
+            setPath("/path/to/your/truststore.jks").
+            setPassword("password-of-your-truststore")
+    );
+NetServer server = vertx.createNetServer(options);
+````
+
+可选的，可以自己读取trust store为buffer，直接提供：
+
+````
+Buffer myTrustStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/truststore.jks");
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setClientAuth(ClientAuth.REQUIRED).
+    setTrustStoreOptions(
+        new JksOptions().
+            setValue(myTrustStoreAsABuffer).
+            setPassword("password-of-your-truststore")
+    );
+NetServer server = vertx.createNetServer(options);
+````
+
+PKCS#12格式的证书授权，通常以`.pfx`或`.p12`为扩展名，也可以以相同的方式加载：
+
+````
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setClientAuth(ClientAuth.REQUIRED).
+    setPfxTrustOptions(
+        new PfxOptions().
+            setPath("/path/to/your/truststore.pfx").
+            setPassword("password-of-your-truststore")
+    );
+NetServer server = vertx.createNetServer(options);
+````
+
+buffer 配置也是支持的：
+
+````
+Buffer myTrustStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/truststore.pfx");
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setClientAuth(ClientAuth.REQUIRED).
+    setPfxTrustOptions(
+        new PfxOptions().
+            setValue(myTrustStoreAsABuffer).
+            setPassword("password-of-your-truststore")
+    );
+NetServer server = vertx.createNetServer(options);
+````
+
+另一种提供server 证书授权的方式是使用`.pem`文件。
+
+````
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setClientAuth(ClientAuth.REQUIRED).
+    setPemTrustOptions(
+        new PemTrustOptions().
+            addCertPath("/path/to/your/server-ca.pem")
+    );
+NetServer server = vertx.createNetServer(options);
+````
+
+buffer 配置也是支持的：
+
+````
+Buffer myCaAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/server-ca.pfx");
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setClientAuth(ClientAuth.REQUIRED).
+    setPemTrustOptions(
+        new PemTrustOptions().
+            addCertValue(myCaAsABuffer)
+    );
+NetServer server = vertx.createNetServer(options);
+````
+
+#### Enabling SSL/TLS on the client
+TCP 客户端也可以配置为使用SSL。They have the exact same API when using SSL as when using standard sockets.
+
+为了在一个NetClient上启用SSL，调用`setSsl(true)`
+
+#### Client trust configuration
+如果[trustAll](http://vertx.io/docs/apidocs/io/vertx/core/net/ClientOptionsBase.html#setTrustAll-boolean-)被设置为true，那么客户端将会trust all server certificate。connection将仍然是加密的，但是这种模式是脆弱的。例如，你不能保证你连接的是谁。谨慎的使用。默认的值是false。
+
+````
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setTrustAll(true);
+NetClient client = vertx.createNetClient(options);
+````
+
+如果`trustAll`没有设置，那么客户端trust store 必须配置，并且应该包含客户端相信的server的证书。
+
+默认的，客户端的host verification 是没有启用的。为了启用host verification，设置客户端使用的算法（目前支持 HTTPS 和 LDAPS）.
+
+````
+NetClientOptions options = new NetClientOptions().
+        setSsl(true).
+        setHostnameVerificationAlgorithm("HTTPS");
+NetClient client = vertx.createNetClient(options);
+````
+
+和server 配置一样，客户端trust 也可以通过几种方式配置：
+
+第一种方式是通过指定包含certificate 授权的Java trust store的位置。
+
+它是一个标准的Java key store，和服务端的key store一样。客户端trust store 位置通过使用方法[path](http://vertx.io/docs/apidocs/io/vertx/core/net/JksOptions.html#setPath-java.lang.String-)和[jks options](http://vertx.io/docs/apidocs/io/vertx/core/net/JksOptions.html)。如果server 在连接时出现了一个客户端不相信的证书，连接将不会成功。
+
+````
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setTrustStoreOptions(
+        new JksOptions().
+            setPath("/path/to/your/truststore.jks").
+            setPassword("password-of-your-truststore")
+    );
+NetClient client = vertx.createNetClient(options);
+````
+
+buffer 配置也是支持的：
+
+````
+Buffer myTrustStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/truststore.jks");
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setTrustStoreOptions(
+        new JksOptions().
+            setValue(myTrustStoreAsABuffer).
+            setPassword("password-of-your-truststore")
+    );
+NetClient client = vertx.createNetClient(options);
+````
+
+PKCS#12格式的证书，通常以`.pfx`或`.p12`为扩展名，也可以以相同的方式加载：
+
+````
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setPfxTrustOptions(
+        new PfxOptions().
+            setPath("/path/to/your/truststore.pfx").
+            setPassword("password-of-your-truststore")
+    );
+NetClient client = vertx.createNetClient(options);
+````
+
+Buffer配置也是支持的：
+
+````
+Buffer myTrustStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/truststore.pfx");
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setPfxTrustOptions(
+        new PfxOptions().
+            setValue(myTrustStoreAsABuffer).
+            setPassword("password-of-your-truststore")
+    );
+NetClient client = vertx.createNetClient(options);
+````
+
+另一种提供证书验证的方式是使用`.pem`文件：
+
+````
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setPemTrustOptions(
+        new PemTrustOptions().
+            addCertPath("/path/to/your/ca-cert.pem")
+    );
+NetClient client = vertx.createNetClient(options);
+````
+
+Buffer配置也是支持的：
+
+````
+Buffer myTrustStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/ca-cert.pem");
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setPemTrustOptions(
+        new PemTrustOptions().
+            addCertValue(myTrustStoreAsABuffer)
+    );
+NetClient client = vertx.createNetClient(options);
+````
+
+#### Specifying key/certificate for the client
+If the server requires client authentication then the client must present its own certificate to the server when connecting. The client can be configured in several ways:
+
+The first method is by specifying the location of a Java key-store which contains the key and certificate. Again it’s just a regular Java key store. The client keystore location is set by using the function [path](http://vertx.io/docs/apidocs/io/vertx/core/net/JksOptions.html#setPath-java.lang.String-) on the [jks options](http://vertx.io/docs/apidocs/io/vertx/core/net/JksOptions.html).
+
+````
+NetClientOptions options = new NetClientOptions().setSsl(true).setKeyStoreOptions(
+    new JksOptions().
+        setPath("/path/to/your/client-keystore.jks").
+        setPassword("password-of-your-keystore")
+);
+NetClient client = vertx.createNetClient(options);
+````
+
+Buffer configuration is also supported:
+
+````
+Buffer myKeyStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/client-keystore.jks");
+JksOptions jksOptions = new JksOptions().
+    setValue(myKeyStoreAsABuffer).
+    setPassword("password-of-your-keystore");
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setKeyStoreOptions(jksOptions);
+NetClient client = vertx.createNetClient(options);
+````
+
+Key/certificate in PKCS#12 format (http://en.wikipedia.org/wiki/PKCS_12), usually with the `.pfx` or the `.p12` extension can also be loaded in a similar fashion than JKS key stores:
+
+````
+NetClientOptions options = new NetClientOptions().setSsl(true).setPfxKeyCertOptions(
+    new PfxOptions().
+        setPath("/path/to/your/client-keystore.pfx").
+        setPassword("password-of-your-keystore")
+);
+NetClient client = vertx.createNetClient(options);
+````
+
+Buffer configuration is also supported:
+
+````
+Buffer myKeyStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/client-keystore.pfx");
+PfxOptions pfxOptions = new PfxOptions().
+    setValue(myKeyStoreAsABuffer).
+    setPassword("password-of-your-keystore");
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setPfxKeyCertOptions(pfxOptions);
+NetClient client = vertx.createNetClient(options);
+````
+
+Another way of providing server private key and certificate separately using `.pem` files.
+
+````
+NetClientOptions options = new NetClientOptions().setSsl(true).setPemKeyCertOptions(
+    new PemKeyCertOptions().
+        setKeyPath("/path/to/your/client-key.pem").
+        setCertPath("/path/to/your/client-cert.pem")
+);
+NetClient client = vertx.createNetClient(options);
+````
+
+Buffer configuration is also supported:
+
+````
+Buffer myKeyAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/client-key.pem");
+Buffer myCertAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/client-cert.pem");
+PemKeyCertOptions pemOptions = new PemKeyCertOptions().
+    setKeyValue(myKeyAsABuffer).
+    setCertValue(myCertAsABuffer);
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setPemKeyCertOptions(pemOptions);
+NetClient client = vertx.createNetClient(options);
+````
+
+记住，在pem 配置中，private key是没有加密的。
+
+#### Revoking certificate authorities

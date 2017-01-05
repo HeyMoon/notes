@@ -58,7 +58,7 @@ Connection connection = factory.newConnection();
 Channel channel = connection.createChannel();
 ````
 
-`Connection`抽象了Socket 连接，并且负责协议版本协商和鉴权。在这里，我们连接到一个本地机器的Broker。如果我们想连接到不同机器上的Broker，我们只需在这里指定主机名字或IP地址。
+`Connection`抽象了Socket 连接，并且负责协议版本协商和授权。在这里，我们连接到一个本地机器的Broker。如果我们想连接到不同机器上的Broker，我们只需在这里指定主机名字或IP地址。
 
 接下来我们创建一个`Channel`，也是大多数API开始的地方。
 
@@ -80,7 +80,7 @@ channel.close();
 connection.close();
 ````
 
-如下是整个`Send.java`类：
+这就是整个`Send.java`类(http://github.com/rabbitmq/rabbitmq-tutorials/blob/master/java/Send.java)：
 
 > Sending doesn't work!
 >
@@ -119,7 +119,7 @@ public class Recv {
 
 注意到，在这里我们也声明了队列。因为可能先启动发送者，我们想保证在我们想消费消息时队列存在。
 
-我们将要告诉服务端从队列中递送消息给我们（消费者）。因为服务端会异步的推送消息，我们提供一个callback，这个callback将会buffer message知道我们准备使用这些消息。这就是`DefaultConsumer`做的。
+我们将要告诉服务端从队列中递送消息给我们（消费者）。因为服务端会异步的推送消息，我们提供一个callback，这个callback将会buffer message直到我们准备使用这些消息。这就是`DefaultConsumer`做的。
 
 ````
 Consumer consumer = new DefaultConsumer(channel) {
@@ -133,4 +133,4 @@ Consumer consumer = new DefaultConsumer(channel) {
 channel.basicConsume(QUEUE_NAME, true, consumer);
 ````
 
-这就是整个的`Recv.java`类。
+这就是整个的`Recv.java`类(http://github.com/rabbitmq/rabbitmq-tutorials/blob/master/java/Recv.java)。

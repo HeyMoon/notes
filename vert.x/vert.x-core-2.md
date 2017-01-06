@@ -1748,3 +1748,321 @@ NetClient client = vertx.createNetClient(options);
 记住，在pem 配置中，private key是没有加密的。
 
 #### Revoking certificate authorities
+使用一个certificate 吊销 列表废除不再信任的证书。[crlPath](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClientOptions.html#addCrlPath-java.lang.String-)配置使用的crl list:
+
+````
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setTrustStoreOptions(trustOptions).
+    addCrlPath("/path/to/your/crl.pem");
+NetClient client = vertx.createNetClient(options);
+````
+
+Buffer 配置也是支持的：
+
+````
+Buffer myCrlAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/crl.pem");
+NetClientOptions options = new NetClientOptions().
+    setSsl(true).
+    setTrustStoreOptions(trustOptions).
+    addCrlValue(myCrlAsABuffer);
+NetClient client = vertx.createNetClient(options);
+````
+
+#### Configuring the Cipher suite
+默认的，TLS配置将使用Vert.x运行的JVM的Cipher suite。这个Cipher suite可以配置为 a suite of enabled Ciphers:
+
+````
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setKeyStoreOptions(keyStoreOptions).
+    addEnabledCipherSuite("ECDHE-RSA-AES128-GCM-SHA256").
+    addEnabledCipherSuite("ECDHE-ECDSA-AES128-GCM-SHA256").
+    addEnabledCipherSuite("ECDHE-RSA-AES256-GCM-SHA384").
+    addEnabledCipherSuite("CDHE-ECDSA-AES256-GCM-SHA384");
+NetServer server = vertx.createNetServer(options);
+````
+
+#### Configuring TLS protocol versions
+默认的，TLS配置将使用下面的协议：SSLv2Hello，TLSv1，TLSv1.1 ，TLSv1.2。协议版本可以显式的配置增加允许的协议：
+
+````
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setKeyStoreOptions(keyStoreOptions).
+    addEnabledSecureTransportProtocol("TLSv1.1").
+    addEnabledSecureTransportProtocol("TLSv1.2");
+    NetServer server = vertx.createNetServer(options);
+````
+
+协议版本可以在`NetServerOptions`和`NetClientOptions`配置中指定。
+
+#### SSL engine
+engine实现可以配置为使用[OpenSSL](https://www.openssl.org/)而不是JDK实现。OpenSSL别JDK engine提供了更好的性能和CPU利用率。
+
+engine options to use is:
+
++ `getSslEngineOptions` options 当被设置
++ 否则，`JdkSSLEngineOptions`
+
+````
+NetServerOptions options = new NetServerOptions().
+    setSsl(true).
+    setKeyStoreOptions(keyStoreOptions);
+
+// Use JDK SSL engine explicitly
+options = new NetServerOptions().
+    setSsl(true).
+    setKeyStoreOptions(keyStoreOptions).
+    setJdkSslEngineOptions(new JdkSSLEngineOptions());
+
+// Use OpenSSL engine
+options = new NetServerOptions().
+    setSsl(true).
+    setKeyStoreOptions(keyStoreOptions).
+    setOpenSslEngineOptions(new OpenSSLEngineOptions());
+````
+
+#### Application-Layer Protocol Negotiation
+ALPN 是一个应用层协议的TLS扩展。它被用于HTTP/2:在TLS握手中，客户端提供一系列它支持的应用层协议，服务端响应它所支持的。
+
+Java 8 没有提供ALPN的支持，所以ALPN可以通过其他方式启用：
+
++ OpenSSL 支持
++ Jetty-ALPN 支持
+
+the engine options to use is:
+
++ [getSslEngineOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/TCPSSLOptions.html#getSslEngineOptions--)
++ [JdkSSLEngineOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/JdkSSLEngineOptions.html)
++ [OpenSSLEngineOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/OpenSSLEngineOptions.html)
++ 否则失败
+
+##### OpenSSL ALPN support
+OpenSSL提供了原生的ALPN 支持。
+
+OpenSSL要求配置[setOpenSslEngineOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/TCPSSLOptions.html#setOpenSslEngineOptions-io.vertx.core.net.OpenSSLEngineOptions-),在classpath使用[netty-tcnative](http://netty.io/wiki/forked-tomcat-native.html)jar。使用tcnative可能要求OpenSSL安装在你的操作系统上，取决于tcnative实现。
+
+##### Jetty-ALPN support
+Jetty-ALPN 是一个small jar，重载了Java 8发行版中一些类对ALPN的支持。
+
+JVM 启动时，必须有 `alpn-boot-${version}.jar`在它的`bootclasspath`:
+
+````
+-Xbootclasspath/p:/path/to/alpn-boot${version}.jar
+````
+
+`${version}`取决于JVM 版本，比如OpenJDK 1.8.0u74对应于 8.1.7.v20160121。完整的列表在[Jetty-ALPN page](http://www.eclipse.org/jetty/documentation/current/alpn-chapter.html)。
+
+主要的缺点是，version取决于 JVM.
+
+为了解决这个问题，可以安装[Jetty-ALPN agent](https://github.com/jetty-project/jetty-alpn-agent)。这个客户端是一个JVM 代理，将会为JVM挑选正确的ALPN 版本：
+
+````
+-javaagent:/path/to/alpn/agent
+````
+
+#### Using a proxy for client connections
+[NetClient](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClient.html)也支持 HTTP/1.x 连接，SOCKS4a 或 SOCKS5 proxy。
+
+这个代理可以在[NetClientOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/NetClientOptions.html)配置，通过设置一个[ProxyOptions](http://vertx.io/docs/apidocs/io/vertx/core/net/ProxyOptions.html)对象，包含代理类型，hostname,port and optionally username and password.
+
+下面是例子：
+
+````
+NetClientOptions options = new NetClientOptions()
+    .setProxyOptions(new ProxyOptions().setType(ProxyType.SOCKS5)
+        .setHost("localhost").setPort(1080)
+        .setUsername("username").setPassword("secret"));
+NetClient client = vertx.createNetClient(options);
+````
+
+DNS 解决方案总是在代理服务器上完成，为了达到一个SOCKS4 客户端的功能，必须在本地解决DNS 地址。
+
+### Writing HTTP servers and clients
+Vert.x 允许你很容易的写非阻塞的HTTP 客户端和服务端。
+
+Vert.x 支持 HTTP/1.0,HTTP/1.1,HTTP/2 协议。
+
+HTTP 的基本API对于HTTP/1.x 和 HTTP/2是相同的，特殊的API 特性用于处理HTTP/2 协议。
+
+#### Creating an HTTP Server
+最简单的创建HTTP Server的方式是，使用所有的默认选项，如下所示：
+
+````
+HttpServer server = vertx.createHttpServer();
+````
+
+#### Configuring an HTTP Server
+如果你不想默认的配置，可以在创建server 时传递一个[HttpServerOptions](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerOptions.html)实例。
+
+````
+HttpServerOptions options = new HttpServerOptions().setMaxWebsocketFrameSize(1000000);
+
+HttpServer server = vertx.createHttpServer(options);
+````
+
+#### Configuring an HTTP/2 Server
+Vert.x支持HTTP/2 通过 TLS `h2`和 TCP `h2c`。
+
++ `h2` 定义了HTTP/2 协议，when used over TLS Negotiated by Application-Layer Protocol Negotiation.
++ `h2c` 定义了HTTP/2 协议，when using in clear text over TCP,such connections are established either with an HTTP/1.1 upgraded request or directly
+
+为了处理`h2`请求，TLS 必须启用通过`setUseAlpn`:
+
+````
+HttpServerOptions options = new HttpServerOptions()
+    .setUseAlpn(true)
+    .setSsl(true)
+    .setKeyStoreOptions(new JksOptions().setPath("/path/to/my/keystore"));
+
+HttpServer server = vertx.createHttpServer(options);
+````
+
+ALPN 是TLS扩展，在客户端和服务端开始交换数据前协商协议。
+
+不支持ALPN的客户端仍然可以使用经典的SSL 握手。
+
+ALPN will usually agree on the `h2` protocol,although `http/1.1` can be used if the server or the client decides so.
+
+为了处理`h2c`请求，TLS 必须禁用。server will upgrade to HTTP/2 any request HTTP/1.1 that wants to upgrade to HTTP/2。 it will also accept a direct `h2c` connection beginning with the `PRI * HTTP/2.0 \r\n SM \r\n`preface。
+
+> WARNING
+>
+>大多数浏览器不支持`h2c`，所以为了服务web site你应该使用`h2`而不是`h2c`。
+
+当一个服务端接受HTTP/2 connection,它将它的`initial Settings`发送给客户端。这些配置定义了客户端如何使用连接，服务端的默认配置是：
+
++ [getMaxConcurrentStreams](http://vertx.io/docs/apidocs/io/vertx/core/http/Http2Settings.html#getMaxConcurrentStreams--):100，HTTP/2 RFC 推荐。
+
++ the Default HTTP/2 Settings values for the others
+
+#### Logging network server activity
+为了debug目的，网络活动可以被记录。
+
+````
+HttpServerOptions options = new HttpServerOptions().setLogActivity(true);
+
+HttpServer server = vertx.createHttpServer(options);
+````
+
+查看[logging_network_activity](http://vertx.io/docs/vertx-core/java/#logging_network_activity)章节，获取详细的解释。
+
+#### Start the server Listening
+为了告诉Server监听到来的请求，你使用`listen`方法中的一个。
+
+为了告诉server监听options中指定的host 和 port：
+
+````
+HttpServer server = vertx.createHttpServer();
+server.listen();
+````
+
+或者，在调用listen时指定host和port，忽略options中的配置：
+
+````
+HttpServer server = vertx.createHttpServer();
+server.listen(8080, "myhost.com");
+````
+
+默认的host是`0.0.0.0`，意味着在所有可用的地址上监听，默认的port是80.
+
+真正的绑定是异步的，所以Server可能没有真正开始监听直到调用listen方法返回后的一段时间。
+
+如果你想在Server真正监听时得到通知，你可以在调用`listen`时提供一个handler。例如：
+
+````
+HttpServer server = vertx.createHttpServer();
+server.listen(8080, "myhost.com", res -> {
+  if (res.succeeded()) {
+    System.out.println("Server is now listening!");
+  } else {
+    System.out.println("Failed to bind!");
+  }
+});
+````
+
+#### Getting notified of incoming requests
+为了在request达到时得到通知，你需要设置一个`requestHandler`：
+
+````
+HttpServer server = vertx.createHttpServer();
+server.requestHandler(request -> {
+  // Handle the request in here
+});
+````
+
+#### Handling requests
+当一个request到达，request Handler 被调用，传递给一个[HttpServerRequest](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html).这个对象代表服务端的HTTP request.
+
+当request的headers完全读出时，Handler被调用。
+
+如果request 包含一个body，这个body将会在request Handler 被调用后的一段时间到达server。
+
+Server request 对象允许你取出`uri`,`path`,`params`,`headers`,几乎所有的事。
+
+每一个server request object和一个server response object关联。你可以用[response](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#response--)获得一个`HttpServerResponse`对象的引用。
+
+下面是一个server 处理一个请求并且返回"hello world"。
+
+````
+vertx.createHttpServer().requestHandler(request -> {
+  request.response().end("Hello world");
+}).listen(8080);
+````
+
+##### Request version
+request 指定的HTTP version 可以通过[version](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#version--)获取。
+
+##### Request method
+使用[method](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#method--)获取一个请求的HTTP method(GET, POST, PUT, DELETE, HEAD, OPTIONS).
+
+##### Request URI
+使用[uri](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#uri--)获取request 的 URI.
+
+记住，这是HTTP request里的真实URI，大多数情况下它是一个相对URI。
+
+URI 在[Section 5.1.2 of the HTTP specification - Request-URI](http://www.w3.org/Protocols/rfc2616/rfc2616-sec5.html)定义。
+
+##### Request path
+使用[path](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#path--)返回URI的path 部分。
+
+例如，如果request uri 是：`a/b/c/page.html?param1=abc&param2=xyz`
+
+那么path 部分是：`/a/b/c/page.html`
+
+##### Request query
+使用[query](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#query--)返回URI的query部分。
+
+例如，如果request uri是：`a/b/c/page.html?param1=abc&param2=xyz`
+
+那么，query部分是：`param1=abc&param2=xyz`
+
+##### Request headers
+使用[headers](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#headers--)返回HTTP request的headers.
+
+这将返回[MultiMap](http://vertx.io/docs/apidocs/io/vertx/core/MultiMap.html)的一个实例--它就像一个普通的Map或Hash，但是允许同一个key有多个values。--这是因为HTTP 允许同一个key有多个header values。
+
+它也有不区分大小写的key,意味着你可以做以下的事：
+
+````
+MultiMap headers = request.headers();
+
+// Get the User-Agent:
+System.out.println("User agent is " + headers.get("user-agent"));
+
+// You can also do this and get the same result:
+System.out.println("User agent is " + headers.get("User-Agent"));
+````
+
+##### Request host
+使用[host](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#host--)返回HTTP request的host。
+
+对于HTTP/1.x request，`host` header被返回。对于HTTP/1 请求，`:authority` pseudo header被返回。
+
+##### Request parameters
+使用[params](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#params--)，返回HTTP request的parameters。
+
+就像`headers`，它也返回一个`MultiMap`的实例。
+
+request parameters

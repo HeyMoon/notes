@@ -2065,4 +2065,267 @@ System.out.println("User agent is " + headers.get("User-Agent"));
 
 就像`headers`，它也返回一个`MultiMap`的实例。
 
-request parameters
+request parameters 在request URI中发送，在path之后。例如，如果URI是：
+
+````
+/page.html?param1=abc&param2=xyz
+````
+
+那么，parameters包含如下：
+
+````
+param1: 'abc'
+param2: 'xyz
+````
+
+注意，这些request parameters是从request URI 中获取的。如果你有form 属性作为一个HTML form提交在`multi-part/form-data`body里，他们就不会出现在这个request parameters里。
+
+##### Remote address
+request 的sender的地址可以通过[remoteAddress](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#remoteAddress--)获取。
+
+##### Absolute URI
+在HTTP request里传递的URI 通常是相对的。如果你想获取对应request的绝对URI，你可以通过[absoluteURI](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#absoluteURI--)获取。
+
+##### End handler
+当完整的request，包括所有的body 全部读取时，request 的 [endHandler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#endHandler-io.vertx.core.Handler-)被执行。
+
+##### Reading Data from the request body
+通常，一个HTTP request包含我们想读取的body.正如之前所说的，request handler被调用，当request的header到达时，所以request object在此时并没有任何的body.
+
+这是因为，body可能很大（例如，一个文件上传），我们一般不想将body传递给你之前buffer整个body，因为这可能引起server消耗可用内存。
+
+为了接收body，你可以使用request的[handler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#handler-io.vertx.core.Handler-),它将会在每次a chunk of request body到来时调用。下面是例子：
+
+````
+request.handler(buffer -> {
+  System.out.println("I have received a chunk of the body of length " + buffer.length());
+});
+````
+
+传递给handler的对象是一个[Buffer](http://vertx.io/docs/apidocs/io/vertx/core/buffer/Buffer.html),当数据从网络到达时，handler可能被调用多次，取决于body 的大小。
+
+在某些情况下（比如，body很小），你将想在内存中聚合整个body，所以你可以自己做聚合，如下所示：
+
+````
+Buffer totalBuffer = Buffer.buffer();
+
+request.handler(buffer -> {
+  System.out.println("I have received a chunk of the body of length " + buffer.length());
+  totalBuffer.appendBuffer(buffer);
+});
+
+request.endHandler(v -> {
+  System.out.println("Full body received, length = " + totalBuffer.length());
+});
+````
+
+这是一种普通情况，所以Vert.x 提供了一个[bodyHandler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#bodyHandler-io.vertx.core.Handler-).bodyHandler在所有的body 都到达时调用一次：
+
+````
+request.bodyHandler(totalBuffer -> {
+  System.out.println("Full body received, length = " + totalBuffer.length());
+});
+````
+
+##### Pumping requests
+request object是一个[ReadStream](http://vertx.io/docs/apidocs/io/vertx/core/streams/ReadStream.html),所以你可以pump request body到任何的[WriteStream](http://vertx.io/docs/apidocs/io/vertx/core/streams/WriteStream.html)实例。
+
+查看[streams and pumps](http://vertx.io/docs/vertx-core/java/#streams)章节，获取更详细内容。
+
+##### Handling HTML forms
+HTML forms 可以以content type 为`application/x-www-form-urlencoded`或`multipart/form-data`提交。
+
+for url encoded forms,form 属性可以在URL中encoded,就像普通的query parameters.
+
+对于，multi-part forms,他们在request body里encoded,对于这种情况，当整个body读取出来时，才是可用的。
+
+multi-part forms也可以包含file uploads.
+
+如果你想获取一个multi-part form的属性，你应该在任何的body 开始读取之前告诉Vert.x 你期望接收这样的form
+，通过设置[setExpectMultipart](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#setExpectMultipart-boolean-)为true,然后你应该使用[formAttributes](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#formAttributes--)获取真正的属性，一旦整个body已经读取了。
+
+
+````
+server.requestHandler(request -> {
+  request.setExpectMultipart(true);
+  request.endHandler(v -> {
+    // The body has now been fully read, so retrieve the form attributes
+    MultiMap formAttributes = request.formAttributes();
+  });
+});
+````
+
+##### Handling form file uploads
+Vert.x 可以处理文件上传，它被编码在一个multi-part request body。
+
+为了接收文件上传，你告诉Vert.x 你期望一个multi-part form 并且在request上设置[uploadHandler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#uploadHandler-io.vertx.core.Handler-).
+
+这个Handler将会在每次upload 到达server时调用。
+
+传递到Handler的对象是一个[HttpServerFileUpload](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerFileUpload.html)实例。
+
+````
+server.requestHandler(request -> {
+  request.setExpectMultipart(true);
+  request.uploadHandler(upload -> {
+    System.out.println("Got a file upload " + upload.name());
+  });
+});
+````
+
+上传的文件可能很大，我们不提供整个上传到一个buffer,因为这可能导致内存耗尽，相反，upload data是以一块一块到达。
+
+````
+request.uploadHandler(upload -> {
+  upload.handler(chunk -> {
+    System.out.println("Received a chunk of the upload of length " + chunk.length());
+  });
+});
+````
+
+upload object是一个[ReadStream](http://vertx.io/docs/apidocs/io/vertx/core/streams/ReadStream.html)，所以你可以pump request body到任何的[WriteStream](http://vertx.io/docs/apidocs/io/vertx/core/streams/WriteStream.html)实例。
+
+查看[streams and pumps](http://vertx.io/docs/vertx-core/java/#streams)章节，获取更详细的信息。
+
+如果你只想上传文件到磁盘，你可以使用[streamToFileSystem](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerFileUpload.html#streamToFileSystem-java.lang.String-):
+
+````
+request.uploadHandler(upload -> {
+  upload.streamToFileSystem("myuploads_directory/" + upload.filename());
+});
+````
+
+>WARNING
+>
+>Make sure you check the filename in a production system to avoid malicious clients uploading files to arbitrary places on your filesystem. See [security notes](http://vertx.io/docs/vertx-core/java/#_security_notes) for more information.
+
+#### Receiving custom HTTP/2 frames
+HTTP/2 is a framed protocol with various frames for the HTTP request/response model.协议允许其他种类的frames被发送和接收。
+
+为了接收自定义的frames,你可以使用request的[customFrameHandler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#customFrameHandler-io.vertx.core.Handler-),它将在每次一个自定义frame到达时被调用。下面是例子：
+
+````
+request.customFrameHandler(frame -> {
+
+  System.out.println("Received a frame type=" + frame.type() +
+      " payload" + frame.payload().toString());
+});
+````
+
+HTTP/2 frames are not subject to flow control - the frame handler will be called immediatly when a custom frame is received whether the request is paused or is not
+
+#### Non standard HTTP methods
+[OTHER](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpMethod.html#OTHER)HTTP 方法被用于非标准的方法，在这种情况下，[rawMethod](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#rawMethod--)返回客户端发送的HTTP 方法。
+
+### Sending back responses
+服务端response 对象是[HttpServerResponse](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html)的实例，可以从request的[response](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerRequest.html#response--)获取。
+
+
+#### Setting status code and message
+一个response的默认HTTP 状态码是`200`，表示`OK`.
+
+使用[setStatusCode](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#setStatusCode-int-),设置不同的状态码。
+
+你也可以指定一个自定义的状态信息，使用[setStatusMessage](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#setStatusMessage-java.lang.String-)。
+
+如果你没有指定状态信息，默认的状态信息将会被使用。
+
+>NOTE
+>
+>for HTTP/2 the status won’t be present in the response since the protocol won’t transmit the message to the client
+
+#### Writing HTTP responses
+为了写数据到一个HTTP response，你可以使用[write](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#write-io.vertx.core.buffer.Buffer-).
+
+这可能在response结束之前被执行多次。他们可以以一些方式执行：
+
+with a single buffer:
+
+````
+HttpServerResponse response = request.response();
+response.write(buffer);
+````
+
+with a string.在这种情况下，string将会以UTF-8编码，结果会被写入到response:
+
+````
+HttpServerResponse response = request.response();
+response.write("hello world!");
+````
+
+with a string and an encoding.在这种情况下，string将会使用指定的编码格式编码，结果写入response:
+
+````
+HttpServerResponse response = request.response();
+response.write("hello world!", "UTF-16");
+````
+
+写到response是异步的，总是在数据写入到队列时立即返回。
+
+如果你只是想写一个string或buffer到HTTP response，你可以写入，，然后调用[end](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#end-java.lang.String-)结束response。
+
+写结果到response的第一个调用是先写入response header。结果，如果你没有使用HTTP chunking,那么在写到response之前，你必须设置`Content-Length`header。如果你使用HTTP chunking,你不需要担心。
+
+##### Ending HTTP responses
+一旦你完成了HTTP response,你应该调用[end](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#end-java.lang.String-).
+
+有几种方式：
+
+没有任何参数，response只是简单的结束。
+
+````
+HttpServerResponse response = request.response();
+response.write("hello world!");
+response.end();
+````
+
+它也可以被调用，传入一个string或buffer,就像`write`方法被调用的一样。在这种情况下，它和调用write传入string或buffer后在调用无参的`end`一样。例如：
+
+````
+HttpServerResponse response = request.response();
+response.end("hello world!");
+````
+
+##### Closing the underlying connection
+你可以关闭底层的TCP 连接，通过[close](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#close--).
+
+当response end时，非keep-alive 连接会自动的被Vert.x关闭。
+
+keep-alive连接默认不会被Vert.x自动关闭。如果你想keep-alive连接在一个空闲时间后被关闭，你可以配置[setIdleTimeout](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerOptions.html#setIdleTimeout-int-).
+
+HTTP/2 连接在关闭response之前发送一个`GOAWAY` frame.
+
+##### Setting response headers
+HTTP response headers可以被加到response通过将它们直接加到[headers](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#headers--).
+
+````
+HttpServerResponse response = request.response();
+MultiMap headers = response.headers();
+headers.set("content-type", "text/html");
+headers.set("other-header", "wibble");
+````
+
+或者，你可以使用[putHeader](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpServerResponse.html#putHeader-java.lang.String-java.lang.String-).
+
+````
+HttpServerResponse response = request.response();
+response.putHeader("content-type", "text/html").putHeader("other-header", "wibble");
+````
+
+headers必须在response写入之前全部添加。
+
+##### Chunked HTTP responses and trailers
+Vert.x 支持[HTTP Chunked Transfer Encoding](http://en.wikipedia.org/wiki/Chunked_transfer_encoding).
+
+这允许HTTP response body 以大块的方式写入，通常被用于一个大response body被传输到客户端，并且总大小不能被提前知道。
+
+你将HTTP response设置为Chunked 模式，如下：
+
+````
+HttpServerResponse response = request.response();
+response.setChunked(true);
+````
+
+默认是非Chunked的。当为Chunked模式时，每一次调用`write`方法的一个将导致一个新的HTTP Chunk被写出。
+
+当为Chunked模式时，你也可以写

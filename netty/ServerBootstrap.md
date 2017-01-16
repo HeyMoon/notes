@@ -2,6 +2,18 @@
 EventLoopGroup workerGroup = new NioEventLoopGroup();
 
 EventLoopGroup实例为：MultithreadEventExecutorGroup
+
+MultithreadEventExecutorGroup 的构造方法中有一个EventExecutor数组：
+
+````
+children = new EventExecutor[nThreads];
+
+for (int i = 0; i < nThreads; i ++) {
+    children[i] = newChild(executor, args);
+````
+
+newChild方法调用的是NioEventLoopGroup的newChild方法，初始化NioEventLoop。所以EventExecutor实际上是NioEventLoop。
+
 Executor为ThreadPerTaskExecutor
 EventExecutor实例为NioEventLoop
 

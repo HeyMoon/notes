@@ -1,0 +1,5 @@
+ConcurrentHashMap提供了完全并发的检索和高并发的更新。这个类遵守和`HashTable`一样的方法规范，对于`HashTable`中的每个方法都提供了对应的版本。但是虽然所有的操作都是线程安全的，检索（获取）操作不需要锁定（索取锁），也没有任何支持锁定整个table从而阻止其他访问的方法。
+
+获取操作（get）通常不需要阻塞，所以可能和更新操作（包括put和remove）有重叠的地方。获取反映了最近完成的更新操作的结果，从他们hold开始。更加正式的是，对于一个给定key的更新操作和任何非null的获取操作服从happens-before关系，获取时会反映更新了的值。对于聚合操作，比如`putAll`和`clear`，并发获取可能反映只有少数entries的insertion或removal。相似的，iterators，spliterators和enmuerations返回的元素反映了hash table在某个时刻的状态，或者自从iterator/enumeration创建时的状态。他们不会抛出`java.util.ConcurrentModificationException`.然而，iterators被设计为在同一时间只能被一个线程使用。牢记这一点，总体状态方法包括`size`和`isEmpty`和`containsValue`的结果，通常只当一个Map没有被其他线程并发更新时有用。否则这些方法的结果反映的短暂的状态可能只适用于监控或者估计的目的，而不能用于程序控制。
+
+当有太多的碰撞时（例如，keys有不同的hash code但是却落在同一个槽里），table会自动扩容，以预期平均效果维持大概两个bins一个映射（对应于用于调整大小的0.75的负载因子阈值）.当mapping添加或移除时，这种平均依然有很多的差异，但是整体上，这维持了一个通常可以接收的时间/空间折衷。然而，调整ConcurrentHashMap或其他种类的哈希表的大小，可能是一个相对慢的操作。当可能时，提供一个估计的大小作为`initialCapacity`可选的构造参数.一个另外的可选的`loadFactor`构造参数提供了自定义初始table容量的更加有用的参数，通过指定表的用于计算可分配的数量的密度。

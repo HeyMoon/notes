@@ -2816,3 +2816,448 @@ Vert.x 支持HTTP Compression.
 需要注意的是，压缩可能会减少网络通信，但是会增加CPU消耗。
 
 ### Creating an HTTP client
+你使用默认的选项创建一个[HttpClient](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClient.html)实例，如下所示：
+
+````
+HttpClient client = vertx.createHttpClient();
+````
+
+
+如果你想配置client的选项，你可以如下所示创建：
+
+````
+HttpClientOptions options = new HttpClientOptions().setKeepAlive(false);
+HttpClient client = vertx.createHttpClient(options);
+````
+
+Vert.x supports HTTP/2 over TLS `h2` and over TCP `h2c`。
+
+默认的，http client performs HTTP/1.1 requests,to performs HTTP/2 requests the [setProtocolVersion](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientOptions.html#setProtocolVersion-io.vertx.core.http.HttpVersion-)必须设置为[HTTP_2](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpVersion.html#HTTP_2)
+
+对于`h2` requests,TLS 必须启用 Application-Layer Protocol Negotiation:
+
+````
+HttpClientOptions options = new HttpClientOptions().
+    setProtocolVersion(HttpVersion.HTTP_2).
+    setSsl(true).
+    setUseAlpn(true).
+    setTrustAll(true);
+
+HttpClient client = vertx.createHttpClient(options);
+````
+
+对于`h2c` requests,TLS 必须被禁用，client 将会发出HTTP/1.1 requests and try an upgrade to HTTP/2：
+
+````
+HttpClientOptions options = new HttpClientOptions().setProtocolVersion(HttpVersion.HTTP_2);
+
+HttpClient client = vertx.createHttpClient(options);
+````
+
+`h2c` connections can also be established directly, i.e connection started with a prior knowledge, when [setHttp2ClearTextUpgrade](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientOptions.html#setHttp2ClearTextUpgrade-boolean-) options is set to false: after the connection is established, the client will send the HTTP/2 connection preface and expect to receive the same preface from the server.
+
+http server 可能支持HTTP/2,真正的version 可以通过[version](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#version--)当response到达时。
+
+当一个client连接到HTTP/2 server,它发送给server它的[initial Settings](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientOptions.html#getInitialSettings--).这些设置定义了server如何使用连接，一个客户端的默认的初始设置是HTTP/2 RFC定义的默认值。
+
+#### Logging network client activity
+为了debug的目的，network activity 可以被记录：
+
+````
+HttpClientOptions options = new HttpClientOptions().setLogActivity(true);
+HttpClient client = vertx.createHttpClient(options);
+````
+
+#### Making requests
+http client 是很灵活的，有多种方式发出请求。
+
+通常，你想使用http client发许多请求到同样的host/port。为了避免你每次都重复host/port，你可以以一个默认的host/port配置client:
+
+````
+HttpClientOptions options = new HttpClientOptions().setDefaultHost("wibble.com");
+// Can also set default port if you want...
+HttpClient client = vertx.createHttpClient(options);
+client.getNow("/some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+````
+
+可选的，如果你发现你自己使用同一个client发送很多请求到不同的host/port，你可以简单的在放请求时指定host/port:
+
+````
+HttpClient client = vertx.createHttpClient();
+
+// Specify both port and host name
+client.getNow(8080, "myserver.mycompany.com", "/some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+
+// This time use the default port 80 but specify the host name
+client.getNow("foo.othercompany.com", "/other-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+````
+
+##### Simple requests with no request body
+通常，你将想发送HTTP requests而没有request body。这些通常是HTTP GET，OPTIONS，HEAD 请求。
+
+The simplest way to do this with the Vert.x http client is using the methods prefixed with `Now`. For example [getNow](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClient.html#getNow-int-java.lang.String-java.lang.String-io.vertx.core.Handler-).
+
+这些方法创建http request,在一个方法调用里发送它，允许你提供一个Handler,这个Handler将会在http response发送回时被调用。
+
+````
+HttpClient client = vertx.createHttpClient();
+
+// Send a GET request
+client.getNow("/some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+
+// Send a GET request
+client.headNow("/other-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+````
+
+##### Writing general request
+有时候，你不知道你想发送的request method 直到run-time。对于那种情况，我们提供了通用的request methods比如[request](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClient.html#request-io.vertx.core.http.HttpMethod-int-java.lang.String-java.lang.String-),它允许你在run-time 指定HTTP method。
+
+````
+HttpClient client = vertx.createHttpClient();
+
+client.request(HttpMethod.GET, "some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+}).end();
+
+client.request(HttpMethod.POST, "foo-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+}).end("some-data");
+````
+
+##### Writing request bodies
+有时候，你想发送一些有body的request,或者你想在发送request之前写headers到request。
+
+为了做到，你可以调用request 方法中的一个，比如[post](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClient.html#post-int-java.lang.String-java.lang.String-)或者，通用purpose request 方法中的一个,比如[request](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClient.html#request-io.vertx.core.http.HttpMethod-int-java.lang.String-java.lang.String-).
+
+这些方法不会立即发送请求，相反，返回一个[HttpClientRequest](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html)的实例，它可以用于写到request body或写入headers。
+
+下面是一个写一个有body的POST 请求的例子：
+
+````
+HttpClient client = vertx.createHttpClient();
+
+HttpClientRequest request = client.post("some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+
+// Now do stuff with the request
+request.putHeader("content-length", "1000");
+request.putHeader("content-type", "text/plain");
+request.write(body);
+
+// Make sure the request is ended when you're done with it
+request.end();
+
+// Or fluently:
+
+client.post("some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+}).putHeader("content-length", "1000").putHeader("content-type", "text/plain").write(body).end();
+
+// Or event more simply:
+
+client.post("some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+}).putHeader("content-type", "text/plain").end(body);
+````
+
+Methods exist to write strings in UTF-8 encoding and in any specific encoding and to write buffers:
+
+````
+request.write("some data");
+
+// Write string encoded in specific encoding
+request.write("some other data", "UTF-16");
+
+// Write a buffer
+Buffer buffer = Buffer.buffer();
+buffer.appendInt(123).appendLong(245l);
+request.write(buffer);
+````
+
+
+如果你只是写一个string 或bufer到HTTP request,你可以在`end`方法里写入它。
+
+````
+request.end("some simple data");
+
+// Write buffer and end the request (send it) in a single call
+Buffer buffer = Buffer.buffer().appendDouble(12.34d).appendLong(432l);
+request.end(buffer);
+````
+
+当你在写到request时，第一次调用`write`将会导致request headers 被写入到wire.
+
+真正的写是异步的，可能在调用返回后才发生。
+
+非chunked HTTP request有一个request body的话，需要提供一个`Content-Length`header.
+
+结果，如果你没有使用chunked HTTP，那么在写到request前，你必须设置`Content-Length`header。
+
+如果你调用`end`方法中的接收一个string或buffer为参数的，那么Vert.x 将会自动计算并且设置`Content-Length`header，在写request body。
+
+如果你正在使用HTTP chunking，那么`Content-Length`header是不需要的。
+
+##### Writing request headers
+你可以写headers到一个request，使用[headers](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#headers--)如下所示：
+
+````
+MultiMap headers = request.headers();
+headers.set("content-type", "application/json").set("other-header", "foo");
+````
+
+headers是[MultiMap](http://vertx.io/docs/apidocs/io/vertx/core/MultiMap.html)的一个实例，他提供了增加，设置，移除entries的操作。HTTP headers允许一个指定的key有多个值。
+
+你也可以使用[putHeader](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#putHeader-java.lang.String-java.lang.String-)写headers:
+
+````
+request.putHeader("content-type", "application/json").putHeader("other-header", "foo")
+````
+
+如果你希望写headers到request，你必须在任何的request body 写入之前写。
+
+##### Non standard HTTP methods
+The [OTHER](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpMethod.html#OTHER) HTTP method is used for non standard methods, when this method is used, [setRawMethod](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#setRawMethod-java.lang.String-) must be used to set the raw method to send to the server.
+
+##### Ending HTTP requests
+一旦你完成HTTP request，你必须结束它使用[end](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#end-java.lang.String-)方法中的一个。
+
+结束一个request导致任何的headers写入，如果他们还没有写入的话，并且request被标记为完成。
+
+Requests can be ended in several ways. With no arguments the request is simply ended:
+
+````
+request.end();
+````
+
+Or a string or buffer can be provided in the call to `end`. This is like calling `write` with the string or buffer before calling `end` with no arguments
+
+````
+request.end("some-data");
+
+// End it with a buffer
+Buffer buffer = Buffer.buffer().appendFloat(12.3f).appendInt(321);
+request.end(buffer);
+````
+
+##### Chunked HTTP requests
+Vert.x 支持[HTTP Chunked Transfer Encoding](http://en.wikipedia.org/wiki/Chunked_transfer_encoding) for requests.
+
+This allows the HTTP request body to be written in chunks, and is normally used when a large request body is being streamed to the server, whose size is not known in advance.
+
+You put the HTTP request into chunked mode using [setChunked](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#setChunked-boolean-).
+
+In chunked mode each call to write will cause a new chunk to be written to the wire. In chunked mode there is no need to set the `Content-Length` of the request up-front.
+
+````
+request.setChunked(true);
+
+// Write some chunks
+for (int i = 0; i < 10; i++) {
+  request.write("this-is-chunk-" + i);
+}
+
+request.end();
+````
+
+##### Request timeouts
+You can set a timeout for a specific http request using [setTimeout](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#setTimeout-long-).
+
+如果request在指定的timeout 时间内没有返回任何的数据，一个异常会被传递到exceptionHandler(如果提供了)，并且request会被关闭。
+
+##### Handling exception
+You can handle exceptions corresponding to a request by setting an exception handler on the `HttpClientRequest` instance:
+
+````
+HttpClientRequest request = client.post("some-uri", response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+request.exceptionHandler(e -> {
+  System.out.println("Received exception: " + e.getMessage());
+  e.printStackTrace();
+});
+````
+
+This does not handle non 2xx response that need to be handled in the `HttpClientResponse` code:
+
+````
+HttpClientRequest request = client.post("some-uri", response -> {
+  if (response.statusCode() == 200) {
+    System.out.println("Everything fine");
+    return;
+  }
+  if (response.statusCode() == 500) {
+    System.out.println("Unexpected behavior on the server side");
+    return;
+  }
+});
+request.end();
+````
+
+>`XXXNow` methods cannot receive an exception handler.
+
+##### Specifying a handler on the client request
+没有在创建client request对象的调用里提供一个response handler,可选的是，你不能在request创建时提供一个handler，你可以在request对象上设置它，使用[handler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#handler-io.vertx.core.Handler-),例如：
+
+````
+HttpClientRequest request = client.post("some-uri");
+request.handler(response -> {
+  System.out.println("Received response with status code " + response.statusCode());
+});
+````
+
+##### Using the request as a stream
+[HttpClientRequest](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html)实例也是一个[WriteStream](http://vertx.io/docs/apidocs/io/vertx/core/streams/WriteStream.html)，这意味着，you can pump to it from any [ReadStream](http://vertx.io/docs/apidocs/io/vertx/core/streams/ReadStream.html)实例。
+
+例如，you can pump a file on disk to a http request body as follows：
+
+````
+request.setChunked(true);
+Pump pump = Pump.pump(file, request);
+file.endHandler(v -> request.end());
+pump.start();
+````
+
+##### Writing HTTP/2 frames
+HTTP/2 is a framed protocol with various frames for the HTTP request/response model.the protocol allows other kind of frames to be sent and received.
+
+为了发送这样的frame,你可以使用request的[write](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html#write-io.vertx.core.buffer.Buffer-)方法。下面是例子：
+
+````
+int frameType = 40;
+int frameStatus = 10;
+Buffer payload = Buffer.buffer("some data");
+
+// Sending a frame to the server
+request.writeCustomFrame(frameType, frameStatus, payload);
+````
+
+##### Stream reset
+HTTP/1.x 不允许干净的重置一个request或response Stream,例如，当一个客户端上传一个已经在server上的resource，server需要接收整个response。
+
+HTTP/2 支持Stream reset at any time during the request/response。
+
+```
+request.reset()
+```
+
+默认的，`NO_ERROR(0)`error code 将会发送，你可以发送其他的code.
+
+````
+request.reset(8);
+````
+
+HTTP/2 规范定义了一系列[error code](http://httpwg.org/specs/rfc7540.html#ErrorCodes).
+
+request handler被request handler 和 response handler 的stream reset 事件通知：
+
+````
+request.exceptionHandler(err -> {
+  if (err instanceof StreamResetException) {
+    StreamResetException reset = (StreamResetException) err;
+    System.out.println("Stream reset " + reset.getCode());
+  }
+});
+````
+
+##### Handling http responses
+你接收[HttpClientResponse](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html)的一个实例到你在request上指定的handler,或者通过直接在[HttpClientRequest](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientRequest.html)对象上设置handler.
+
+你可以查询response 的 status code和status message,通过[statusCode](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#statusCode--)和[statusMessage](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#statusMessage--).
+
+````
+client.getNow("some-uri", response -> {
+  // the status code - e.g. 200 or 404
+  System.out.println("Status code is " + response.statusCode());
+
+  // the status message e.g. "OK" or "Not Found".
+  System.out.println("Status message is " + response.statusMessage());
+});
+````
+
+##### Using the response as a stream
+The HttpClientResponse instance is also a ReadStream which means you can pump it to any WriteStream instance.
+
+##### Response headers and trailers
+Http responses 可以包含头部(headers)。使用[headers](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#headers--)获取头部。
+
+返回的对象是一个[MultiMap](http://vertx.io/docs/apidocs/io/vertx/core/MultiMap.html),因为HTTP headers 对于单个key可以包含多个values.
+
+````
+String contentType = response.headers().get("content-type");
+String contentLength = response.headers().get("content-lengh");
+````
+
+Chunked HTTP responses 也可以包含trailers-他们在response body 的最后一个chunk被发送。
+
+你可以使用[trailers](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#trailers--)获取trailers.Trailers 也是 MultiMap.
+
+
+##### Reading the request body
+response handler在response的headers从wire中读取出时被调用。
+
+如果response有body，body可能在headers已经被读取之后分多块到达。我们不必等所有的body都到达之后再调用response handler，因为response 可能很大，我们可能等很长的时间，或者太大的response可能耗尽内存。
+
+当一部分response body到达时，handler被调用，Buffer 表示这一部分body。
+
+````
+client.getNow("some-uri", response -> {
+
+  response.handler(buffer -> {
+    System.out.println("Received a part of the response body: " + buffer);
+  });
+});
+````
+
+如果你直到response body不是很大，在调用handler之前想要在内存中聚合所有的response，你或许可以自己聚合：
+
+````
+client.getNow("some-uri", response -> {
+
+  // Create an empty buffer
+  Buffer totalBuffer = Buffer.buffer();
+
+  response.handler(buffer -> {
+    System.out.println("Received a part of the response body: " + buffer.length());
+
+    totalBuffer.appendBuffer(buffer);
+  });
+
+  response.endHandler(v -> {
+    // Now all the body has been read
+    System.out.println("Total response body length is " + totalBuffer.length());
+  });
+});
+````
+
+或，你可以使用方便的[bodyHandler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#bodyHandler-io.vertx.core.Handler-)，它在整个body被读取时调用：
+
+````
+client.getNow("some-uri", response -> {
+
+  response.bodyHandler(totalBuffer -> {
+    // Now all the body has been read
+    System.out.println("Total response body length is " + totalBuffer.length());
+  });
+});
+````
+
+##### Response end handler
+response的[endHandler](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#endHandler-io.vertx.core.Handler-)在整个response body已经被读取时被调用；如果没有body的话，在headers已经被读取之后立即被调用（response handler已经被调用了）。
+
+##### Reading cookies from the response
+你可以从response中获取cookies,通过[cookies](http://vertx.io/docs/apidocs/io/vertx/core/http/HttpClientResponse.html#cookies--).
+
+可选的，你也可以只解析response里的`Set-Cookie`header。
+
+##### 100-Continue handling

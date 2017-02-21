@@ -6,9 +6,9 @@ ConcurrentHashMap提供了完全并发的检索和高并发的更新。这个类
 
 Overview:
 
-ConcurrentHashMap设计的主要目的是维持并发的读性能(主要是get()方法，但也iterators和相关方法)，最小化更新竞争。第二个目的是，比`java.util.HashMap`有相同的或更好的空间消耗，也支持许多线程在空的table上的高的初始插入率。
+ConcurrentHashMap设计的主要目的是维持并发的读性能(主要是get()方法，但也包括iterators和相关方法)，最小化update竞争。第二个目的是，比`java.util.HashMap`有相同的或更好的空间消耗，也支持许多线程在空的table上的高的初始插入率。
 
-这个map一般作为桶的hash table.每一个key-value mapping被保存在一个Node中。大多数nodes是基本的Node类的实例，有hash,key,value,和next fields。然而，有许多子类：TreeNode,被安排在平衡树，而不是lists.TreeBins 持有TreeNodes的根节点的集合。在调整大小时，ForwardingNodes 被放在桶的头部。ReservationNodes 在computeIfAbsent和相关方法确定值时被用作placeholds。TreeBin,ForwardingNode和ReservationNode并不持有正常的用户keys,values,或者hashs，在搜索时可以轻而易举的区别，因为他们有负的hash值，null的key和value。（z这些特殊的nodes要么是不寻常的要么是transient的，所以有这些没有使用的field是没有影响的）
+这个map一般作为桶（bin）的hash table.每一个key-value mapping被保存在一个Node中。大多数nodes是基本的Node类的实例，有hash,key,value,和next fields。然而，有许多子类：TreeNode,被安排在平衡树，而不是lists.TreeBins 持有TreeNodes的根节点的集合。在调整大小时，ForwardingNodes 被放在桶的头部。ReservationNodes 在computeIfAbsent和相关方法确定值时被用作placeholds。TreeBin,ForwardingNode和ReservationNode并不持有正常的用户keys,values,或者hashs，在搜索时可以轻而易举的区别，因为他们有负的hash值，null的key和value。（z这些特殊的nodes要么是不寻常的要么是transient的，所以有这些没有使用的field是没有影响的）
 
 
 直到第一次插入时，table被延迟初始化为2的N次方的大小。table中的每一个bin(桶)通常包含一列Nodes。table的访问需要volatile/atomic read，writes,和cas。
@@ -57,4 +57,6 @@ ConcurrentHashMap设计的主要目的是维持并发的读性能(主要是get()
 
 TreeBins使用一种特殊形式的比较来搜索以及相关的操作（这也是为什么我们不能用已经存在的集合例如TreeMap）。TreeBin 包含了可以比较的元素，但是也可能包含其他的，比如可以比较但是对于同一的T不需要比较的元素，所以我们不能在他们上执行`compareTo`方法。为了处理这种情况，Tree首先使用hash 值排序，如果可行的话再使用`Comparable.compareTo`排序。在节点上查找时，如果元素不能比较或者比较等于0，那么左边和右边的子节点可能都需要以绑定的hash值查询。一旦插入，为了在调整平衡时保持整体的顺序，we compare classes and identityHashCodes as tie-breakers.The red-black balancing code is updated from pre-jdk-collections(http://gee.cs.oswego.edu/dl/classes/collections/RBCell.java)
 
-TreeBins 也需要一个额外的锁定机制。尽管list的横向移动即使在update时也可以读取，tree 的横向移动就不可以了，只要是因为树旋转可能改变根节点和（或）他的连接。TreeBins在主要的bin锁定策略上寄生了一个简单的read-write lock 机制：
+TreeBins 也需要一个额外的锁定机制。尽管list的横向移动即使在update时也可以读取，tree 的横向移动就不可以了，只要是因为树旋转可能改变根节点和（或）他的连接。TreeBins在主要的bin锁定策略上寄生了一个简单的read-write lock 机制：与插入和移除相关的结构调整已经在bin上锁定了（所以不能和其他的写入者冲突），但是必须等待进行中的读取者完成。因为可能只有一个这样的等待者，我们使用一个简单的结构，使用单个`waiter` field来阻塞写入者。但是读取者需要永不阻塞。如果root 锁被持有了，他们沿着缓慢的横向路径前进（通过next-pointer）直到锁变得可用，或者list穷尽了，无论哪个先发生。这种情况不会很快，但是最大化总预期吞吐量。
+
+维护API和与之前版本的一致性引出了几个古怪的事。主要是：我们去掉了没有使用的构造参数`concurrencyLevel`。我们接收一个`loadFactor`作为构造参数，但是只是在初始化table容量时使用它。我们也声明了一个不用的`Segment`类，只有当序列化时以最小的形式初始化。

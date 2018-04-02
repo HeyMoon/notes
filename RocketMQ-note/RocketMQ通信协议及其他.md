@@ -83,5 +83,3 @@ channelFuture.awaitUninterruptibly(this.nettyClientConfig.getConnectTimeoutMilli
 从而与addr创建长连接.
 
 另一方面，同一个网络连接,客户端多个线程可以同时发送请求,应答响应通过header 中的 opaque 字段来标识,从而达到连接复用。
-
-为什么用ChannelWrapper,而不直接用ChannelFuture呢，封装。

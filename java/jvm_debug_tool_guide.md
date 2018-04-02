@@ -1,3 +1,17 @@
+### -XX:+PrintCommandLineFlags
+这个参数的作用是显示出VM初始化完毕后所有跟最初的默认值不同的参数及它们的值。
+
+### -XX:+PrintFlagsFinal
+前一个参数只显示跟默认值不同的，而这个参数则可以显示所有可设置的参数及它们的值。不过这个参数本身只从JDK 6 update 21开始才可以用，之前的Oracle/Sun JDK则用不了。
+可以设置的参数默认是不包括diagnostic或experimental系的。要在-XX:+PrintFlagsFinal的输出里看到这两种参数的信息，分别需要显式指定-XX:+UnlockDiagnosticVMOptions / -XX:+UnlockExperimentalVMOptions 。
+
+### -XX:+PrintFlagsInitial
+这个参数显示在处理参数之前所有可设置的参数及它们的值，然后直接退出程序。“参数处理”包括许多步骤，例如说检查参数之间是否有冲突，通过ergonomics调整某些参数的值，之类的。
+
+结合-XX:+PrintFlagsInitial与-XX:+PrintFlagsFinal，对比两者的差异，就可以知道ergonomics对哪些参数做了怎样的调整。
+
+### 除了在VM启动时传些特殊的参数让它打印出自己的各参数外，jinfo -flag 可以用来查看某个参数的值，也可以用来设定manageable系参数的值。
+
 ### 1. jps:虚拟机进程状况工具
 这个命令的功能和Unix 下的`ps`命令类似：它可以列出正在运行的虚拟机进程，并显示虚拟机主类(`main()`函数所在的类)名称，以及这些进程的本地虚拟机唯一Id(Local Virtual Machine Identifier,LVMID)。对于本地虚拟机进程来说，LVMID与操作系统的进程ID是一致的。
 
@@ -381,13 +395,48 @@ where <option> is one of:
 
 另外，在[JDK 7的文档](http://docs.oracle.com/javase/7/docs/technotes/tools/share/jinfo.html)中说这个命令，今后JDK可能不支持了。
 
-同时，注意上面的`-flag <name>=<value> to set the named VM flag to the given value`,使用`-flag <name>=<value> `可以修改一部分运行期可写的虚拟机参数值。
+前面我们已经知道，可以通过`java -XX:+PrintFlagsFinal`查看参数默认值。
+
+jinfo 还可以通过使用`-sysprops`选项把虚拟机进程的`System.getProperties()`的内容打印出来。
+
+同时，注意上面的`-flag <name>=<value> to set the named VM flag to the given value`,使用`-flag <name>=<value> `可以修改一部分运行期可写（也就是`-XX:+PrintFlagsFinal`里显示为`manageable`的参数）的虚拟机参数值。
 
 示例：
 
 `jinfo 3747`
 
 `jinfo -flags 3747`
+
+在运行时改变JVM manageable的参数：
+
+首先,我们通过`java -XX:+PrintFlagsFinal`查看所有的可配置的参数以及其默认值。选取其中的一个标志为`manageable`的，比如`PrintClassHistogramAfterFullGC`
+
+````
+jinfo -flag PrintClassHistogramAfterFullGC 83105
+-XX:-PrintClassHistogramAfterFullGC
+````
+
+然后，改变这个参数的值。
+
+````
+jinfo -flag +PrintClassHistogramAfterFullGC 83105
+````
+
+最后，我们看一下改变后的值。
+
+````
+jinfo -flag PrintClassHistogramAfterFullGC 83105
+-XX:+PrintClassHistogramAfterFullGC
+````
+
+可以看到，进程83105的`PrintClassHistogramAfterFullGC`参数值变为true了
+
+**要特别注意的是，在运行期，JVM只能改变标志为manageable的参数**
+
+有时，我们可能想让JVM在一些特定事件发生的时候自动做heap dump，比如发生out of Memory,那么可以通过jinfo指定。
+
+除了HeapDumpOnOutOfMemoryError之外，还有HeapDumpBeforeFullGC与HeapDumpAfterFullGC参数，分别用于指定在full GC之前与之后生成heap dump。
+
 
 参考：
 
@@ -497,6 +546,8 @@ PS Old Generation
    free     = 179306496 (171.0MB)
    0.0% used
 ````
+
+从上面我们可以看出，对象的分配使用的是`thread-local object allocation`,使用的垃圾算法是`Parallel GC with 8 thread(s)`，所以使用的垃圾收集器是Parallel + Serial Old/Parallel Old。
 
 2. `-finalizerinfo`
 

@@ -456,9 +456,15 @@ public Object get(int timeout) throws RemotingException {
 它首先获取一个锁，然后调用`isDone()`方法判断response是否等于null（当服务端有消息返回时会调用`HeaderExchangeHandler`的`received()`方法，然后再调用`handleResponse()`方法将response设置为服务端的返回值。），如果response为null，说明服务端没有返回值，调用`done.await(timeout, TimeUnit.MILLISECONDS);`继续等待；如果response不为null，则返回response。
 
 #### two way(异步)
-异步和同步差不多，只不过异步返回一个future，然后在`FutureFilter`里设置一个`callBack`方法。
+异步和同步差不多，只不过异步返回一个future，然后在`FutureFilter`里设置一个`callBack`方法。需要为你的方法设置一个回调方法：
 
 ````
+<dubbo:reference id="demoService" interface="com.alibaba.dubbo.demo.DemoService">
+		<dubbo:method name="" onreturn="" oninvoke=""/>
+	</dubbo:reference>
+
+然后在dubbo的FutureFilter里被拦截执行onreturn方法。
+
 else if (isAsync) {
   ResponseFuture future = currentClient.request(inv, timeout) ;
     RpcContext.getContext().setFuture(new FutureAdapter<Object>(future));

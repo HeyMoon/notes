@@ -247,7 +247,7 @@ public void channelRead(ChannelHandlerContext ctx, Object msg) {
 }
 ````
 
-我们可以看到,`child.pipeline().addLast(childHandler);....`等等代码，意图已经很明显了。原来这个ChannelHandler的作用是将`childHandler`添加到`SocketChannel`上面，并且设置`ChannelOption`和`childAttrs`。
+我们可以看到,`child.pipeline().addLast(childHandler);....`等等代码，意图已经很明显了。原来这个ChannelHandler的作用是将`childHandler`添加到`SocketChannel`上面，并且设置`ChannelOption`和`childAttrs`,childGroup.register(child)。
 
 init(channel);方法到这里就结束了。
 
